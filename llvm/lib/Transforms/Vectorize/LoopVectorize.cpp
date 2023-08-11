@@ -152,6 +152,83 @@
 
 using namespace llvm;
 
+// Vectorization has VF, VFscalable, IC, ICScalable, epilogVF, foldtail.
+// 1,2,4,8,16,32, 1,2,4,8, 1,2,4,8,16,32, 1
+// decode(X) vf = (x & 0xff000000) >> 24, ic = (x & 0xff0000) >> 16, ef = (x & 0xff00) >> 8, foldtail=x&1
+
+static cl::opt<std::string> GenOptPrefix(
+    "gen-opt-prefix", cl::init(""), cl::Hidden,
+    cl::desc("GenOptPrefix"));
+static cl::opt<std::string> GenOptFilename(
+    "gen-opt-filename", cl::init(""), cl::Hidden,
+    cl::desc("GenOptFilename"));
+
+unsigned GenOptEncodeVF(ElementCount VFs, int IC, ElementCount EFs, bool FoldTail) {
+  unsigned VF = VFs.getKnownMinValue();
+  unsigned EF = EFs.getKnownMinValue();
+  assert(VF >= 1 && VF <= 32 && isPowerOf2_32(VF));
+  assert(IC >= 1 && IC <= 8 && isPowerOf2_32(IC));
+  assert(EF >= 1 && EF <= 32 && isPowerOf2_32(EF));
+  return (Log2_32(VF) << 24) | (Log2_32(IC) << 16) | (Log2_32(EF) << 8) |
+         (VFs.isScalable() ? 4 : 0) | (EFs.isScalable() ? 2 : 0) |
+         (FoldTail ? 1 : 0);
+}
+
+void GenOptWrite(Loop* L, ElementCount VF, int IC, ElementCount EF, bool FoldTail) {
+  DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " LoopVectorizer "
+         << L->getHeader()->getParent()->getName() << " "
+         << GenOptEncodeVF(VF, IC, EF, FoldTail) << "\n");
+}
+
+#include <iostream>
+#include <fstream>
+#include <llvm/ADT/StringExtras.h>
+unsigned GetGenOpt(Function *F) {
+  static StringMap<unsigned> Idxs;
+  if (GenOptFilename == "")
+    return 0;
+  assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
+  std::string N = F->getName().str();
+  if (!Idxs.contains(N))
+    Idxs[N] = 0;
+  unsigned Idx = Idxs[N]++;
+
+  std::string line;
+  std::ifstream file;
+  file.open(GenOptFilename);
+  unsigned Other = 0;
+  while (std::getline(file, line)) {
+    SmallVector<StringRef> Cs;
+    SplitString(line, Cs);
+    if (Cs[0] == GenOptPrefix && Cs[1] == "LoopVectorizer" && Cs[2] == N) {
+      //assert(Idx < Cs.size() - 3);
+      if (Idx >= Cs.size() - 3)
+        Idx = Idx%(Cs.size() - 3);
+      return atoi(Cs[Idx + 3].data());
+    }
+    if (Cs[0] == GenOptPrefix && Cs[1] == "LoopVectorizer" && Cs[2] == "Other") {
+      unsigned IdxO = Idx % (Cs.size() - 3);
+      Other = atoi(Cs[IdxO + 3].data());
+    }
+  }
+  dbgs() << "Returning other for GenOptPrefix: " << GenOptPrefix << " N: " << N << "\n";
+  return Other;
+}
+
+ElementCount GenOptGetVF(unsigned GenOpt) {
+  unsigned VF = 1 << ((GenOpt&0xff000000)>>24);
+  return (GenOpt & 0x4) ? ElementCount::getScalable(VF) : ElementCount::getFixed(VF);
+}
+
+unsigned GenOptGetIC(unsigned GenOpt) {
+  return 1 << ((GenOpt&0xff0000)>>16);
+}
+
+ElementCount GenOptGetEF(unsigned GenOpt) {
+  unsigned VF = 1 << ((GenOpt&0xff00)>>8);
+  return (GenOpt & 0x2) ? ElementCount::getScalable(VF) : ElementCount::getFixed(VF);
+}
+
 #define LV_NAME "loop-vectorize"
 #define DEBUG_TYPE LV_NAME
 
@@ -5328,7 +5405,7 @@ static void emitInvalidCostRemarks(SmallVector<InstructionVFPair> InvalidCosts,
 }
 
 VectorizationFactor LoopVectorizationPlanner::selectVectorizationFactor(
-    const ElementCountSet &VFCandidates) {
+    const ElementCountSet &VFCandidates, unsigned GenOpt) {
   InstructionCost ExpectedCost =
       CM.expectedCost(ElementCount::getFixed(1)).first;
   LLVM_DEBUG(dbgs() << "LV: Scalar loop costs: " << ExpectedCost << ".\n");
@@ -5385,7 +5462,10 @@ VectorizationFactor LoopVectorizationPlanner::selectVectorizationFactor(
     if (isMoreProfitable(Candidate, ScalarCost))
       ProfitableVFs.push_back(Candidate);
 
-    if (isMoreProfitable(Candidate, ChosenFactor))
+    if (GenOptFilename != "") {
+      if (i == GenOptGetVF(GenOpt))
+        ChosenFactor = Candidate;
+    } else if (isMoreProfitable(Candidate, ChosenFactor))
       ChosenFactor = Candidate;
   }
 
@@ -5464,7 +5544,12 @@ bool LoopVectorizationCostModel::isEpilogueVectorizationProfitable(
 }
 
 VectorizationFactor LoopVectorizationPlanner::selectEpilogueVectorizationFactor(
-    const ElementCount MainLoopVF, unsigned IC) {
+    const ElementCount MainLoopVF, unsigned IC, unsigned GenOpt) {
+  if (GenOptFilename != "") {
+    ElementCount ForcedEC = GenOptGetEF(GenOpt);
+    if (hasPlanWithVF(ForcedEC))
+      return {ForcedEC, 0, 0};
+  }
   VectorizationFactor Result = VectorizationFactor::Disabled();
   if (!EnableEpilogueVectorization) {
     LLVM_DEBUG(dbgs() << "LEV: Epilogue vectorization is disabled.\n");
@@ -7441,7 +7526,8 @@ LoopVectorizationPlanner::planInVPlanNativePath(ElementCount UserVF) {
 }
 
 std::optional<VectorizationFactor>
-LoopVectorizationPlanner::plan(ElementCount UserVF, unsigned UserIC) {
+LoopVectorizationPlanner::plan(ElementCount UserVF, unsigned UserIC,
+                               unsigned GenOpt) {
   assert(OrigLoop->isInnermost() && "Inner loop expected.");
   CM.collectValuesToIgnore();
   CM.collectElementTypesForWidening();
@@ -7517,7 +7603,7 @@ LoopVectorizationPlanner::plan(ElementCount UserVF, unsigned UserIC) {
     return VectorizationFactor::Disabled();
 
   // Select the optimal vectorization factor.
-  VectorizationFactor VF = selectVectorizationFactor(VFCandidates);
+  VectorizationFactor VF = selectVectorizationFactor(VFCandidates, GenOpt);
   assert((VF.Width.isScalar() || VF.ScalarCost > 0) && "when vectorizing, the scalar cost must be non-zero.");
   if (!hasPlanWithVF(VF.Width)) {
     LLVM_DEBUG(dbgs() << "LV: No VPlan could be built for " << VF.Width
@@ -9932,6 +10018,15 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     }
   }
 
+  unsigned GenOpt = GetGenOpt(L->getHeader()->getParent());
+  LLVM_DEBUG(dbgs() << "GenOpt: " << GenOpt << "\n");
+  if (GenOptFilename != "") {
+    if ((GenOpt & 0x1) && (SEL == CM_ScalarEpilogueAllowed))
+      SEL = CM_ScalarEpilogueNotNeededUsePredicate;
+    else if (!(GenOpt & 0x1) && (SEL != CM_ScalarEpilogueNotNeededUsePredicate))
+      SEL = CM_ScalarEpilogueAllowed;
+  }
+
   // Check the function attributes to see if implicit floats or vectors are
   // allowed.
   if (F->hasFnAttribute(Attribute::NoImplicitFloat)) {
@@ -9990,7 +10085,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   unsigned UserIC = Hints.getInterleave();
 
   // Plan how to best vectorize, return the best VF and its cost.
-  std::optional<VectorizationFactor> MaybeVF = LVP.plan(UserVF, UserIC);
+  std::optional<VectorizationFactor> MaybeVF = LVP.plan(UserVF, UserIC, GenOpt);
 
   VectorizationFactor VF = VectorizationFactor::Disabled();
   unsigned IC = 1;
@@ -10000,7 +10095,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   if (MaybeVF) {
     VF = *MaybeVF;
     // Select the interleave count.
-    IC = CM.selectInterleaveCount(VF.Width, VF.Cost);
+    IC = GenOptFilename != "" ? CM.selectInterleaveCount(VF.Width, VF.Cost) : GenOptGetIC(GenOpt);
 
     unsigned SelectedIC = std::max(IC, UserIC);
     //  Optimistically generate runtime checks if they are needed. Drop them if
@@ -10022,6 +10117,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                   "memory operations";
       });
       LLVM_DEBUG(dbgs() << "LV: Too many memory checks needed.\n");
+      GenOptWrite(L, VF.Width, IC, ElementCount::getFixed(1), CM.foldTailByMasking());
       Hints.emitRemarkWithHints();
       return false;
     }
@@ -10087,6 +10183,8 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                                       L->getStartLoc(), L->getHeader())
              << IntDiagMsg.second;
     });
+    GenOptWrite(L, VF.Width, IC, ElementCount::getFixed(1),
+                CM.foldTailByMasking());
     return false;
   } else if (!VectorizeLoop && InterleaveLoop) {
     LLVM_DEBUG(dbgs() << "LV: Interleave Count is " << IC << '\n');
@@ -10129,12 +10227,14 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                << "interleaved loop (interleaved count: "
                << NV("InterleaveCount", IC) << ")";
       });
+      GenOptWrite(L, VF.Width, IC, ElementCount::getFixed(1),
+                         CM.foldTailByMasking());
     } else {
       // If we decided that it is *legal* to vectorize the loop, then do it.
 
       // Consider vectorizing the epilogue too if it's profitable.
       VectorizationFactor EpilogueVF =
-          LVP.selectEpilogueVectorizationFactor(VF.Width, IC);
+          LVP.selectEpilogueVectorizationFactor(VF.Width, IC, GenOpt);
       if (EpilogueVF.Width.isVector()) {
 
         // The first pass vectorizes the main loop and creates a scalar epilogue
@@ -10236,6 +10336,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
       }
       // Report the vectorization decision.
       reportVectorization(ORE, L, VF, IC);
+      GenOptWrite(L, VF.Width, IC, EpilogueVF.Width, CM.foldTailByMasking());
     }
 
     if (ORE->allowExtraAnalysis(LV_NAME))

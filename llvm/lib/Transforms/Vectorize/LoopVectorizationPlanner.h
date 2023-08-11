@@ -315,7 +315,7 @@ public:
 
   /// Plan how to best vectorize, return the best VF and its cost, or
   /// std::nullopt if vectorization and interleaving should be avoided up front.
-  std::optional<VectorizationFactor> plan(ElementCount UserVF, unsigned UserIC);
+  std::optional<VectorizationFactor> plan(ElementCount UserVF, unsigned UserIC, unsigned GenOpt);
 
   /// Use the VPlan-native path to plan how to best vectorize, return the best
   /// VF and its cost.
@@ -361,7 +361,8 @@ public:
   /// for vectorizing the epilogue. Returns VectorizationFactor::Disabled if
   /// epilogue vectorization is not supported for the loop.
   VectorizationFactor
-  selectEpilogueVectorizationFactor(const ElementCount MaxVF, unsigned IC);
+  selectEpilogueVectorizationFactor(const ElementCount MaxVF, unsigned IC,
+                                    unsigned GenOpt);
 
 protected:
   /// Build VPlans for power-of-2 VF's between \p MinVF and \p MaxVF inclusive,
@@ -400,7 +401,7 @@ private:
   /// \return The most profitable vectorization factor and the cost of that VF.
   /// This method checks every VF in \p CandidateVFs.
   VectorizationFactor
-  selectVectorizationFactor(const ElementCountSet &CandidateVFs);
+  selectVectorizationFactor(const ElementCountSet &CandidateVFs, unsigned GenOpt);
 
   /// Returns true if the per-lane cost of VectorizationFactor A is lower than
   /// that of B.
