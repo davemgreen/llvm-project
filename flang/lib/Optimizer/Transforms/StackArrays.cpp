@@ -109,15 +109,15 @@ public:
 /// Also caches the insertion points for the new alloca operations
 class LatticePoint : public mlir::dataflow::AbstractDenseLattice {
   // Maps all values we are interested in to states
-  llvm::SmallDenseMap<mlir::Value, AllocationState, 1> stateMap;
+  llvm::SmallMapVector<mlir::Value, AllocationState, 1> stateMap;
 
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LatticePoint)
   using AbstractDenseLattice::AbstractDenseLattice;
 
-  bool operator==(const LatticePoint &rhs) const {
-    return stateMap == rhs.stateMap;
-  }
+  //bool operator==(const LatticePoint &rhs) const {
+    //return stateMap == rhs.stateMap;
+  //}
 
   /// Join the lattice accross control-flow edges
   mlir::ChangeResult join(const AbstractDenseLattice &lattice) override;
@@ -133,7 +133,7 @@ public:
   /// Get fir.allocmem ops which were allocated in this function and always
   /// freed before the function returns, plus whre to insert replacement
   /// fir.alloca ops
-  void appendFreedValues(llvm::DenseSet<mlir::Value> &out) const;
+  void appendFreedValues(llvm::SetVector<mlir::Value> &out) const;
 
   std::optional<AllocationState> get(mlir::Value val) const;
 };
@@ -267,7 +267,7 @@ mlir::ChangeResult LatticePoint::join(const AbstractDenseLattice &lattice) {
       AllocationState newState = ::join(myState, rhsState);
       if (newState != myState) {
         changed = mlir::ChangeResult::Change;
-        it->getSecond() = newState;
+        it->second = newState;
       }
     } else {
       // value not present in current map: add it
@@ -309,7 +309,7 @@ mlir::ChangeResult LatticePoint::set(mlir::Value value, AllocationState state) {
 
 /// Get values which were allocated in this function and always freed before
 /// the function returns
-void LatticePoint::appendFreedValues(llvm::DenseSet<mlir::Value> &out) const {
+void LatticePoint::appendFreedValues(llvm::SetVector<mlir::Value> &out) const {
   for (auto &[value, state] : stateMap) {
     if (state == AllocationState::Freed)
       out.insert(value);
@@ -435,7 +435,7 @@ StackArraysAnalysisWrapper::analyseFunction(mlir::Operation *func) {
   };
   func->walk([&](mlir::func::ReturnOp child) { joinOperationLattice(child); });
   func->walk([&](fir::UnreachableOp child) { joinOperationLattice(child); });
-  llvm::DenseSet<mlir::Value> freedValues;
+  llvm::SetVector<mlir::Value> freedValues;
   point.appendFreedValues(freedValues);
 
   // We only replace allocations which are definately freed on all routes
