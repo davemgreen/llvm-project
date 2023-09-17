@@ -1103,8 +1103,24 @@ Value *InstCombinerImpl::SimplifySelectsFeedingBinaryOp(BinaryOperator &I,
   Value *A, *B, *C, *D, *E, *F;
   bool LHSIsSelect = match(LHS, m_Select(m_Value(A), m_Value(B), m_Value(C)));
   bool RHSIsSelect = match(RHS, m_Select(m_Value(D), m_Value(E), m_Value(F)));
+
   if (!LHSIsSelect && !RHSIsSelect)
     return nullptr;
+
+  // Treat umax(x, 1) as select(icmp(eq, x, 0), 1, x), if it matches the other
+  // predicate.
+  CmpInst::Predicate Pred;
+  Value *X;
+  if (LHSIsSelect && !RHSIsSelect && match(RHS, m_UMax(m_Value(X), m_One())) &&
+      match(A, m_c_ICmp(Pred, m_Specific(X), m_Zero())) &&
+      Pred == ICmpInst::ICMP_EQ) {
+    //dbgs() << "Using umax\n";
+    RHSIsSelect = true;
+    match(RHS, m_UMax(m_Value(F), m_Value(E)));
+    D = A;
+  }
+  /*if (LHSIsSelect) dbgs() << "LHSIsSelect: " << *A << " " << *B << " " << *C << "\n";
+  if (RHSIsSelect) dbgs() << "RHSIsSelect: " << *D << " " << *E << " " << *F << "\n";*/
 
   FastMathFlags FMF;
   BuilderTy::FastMathFlagGuard Guard(Builder);
