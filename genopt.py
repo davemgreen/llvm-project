@@ -40,6 +40,7 @@ args = parser.parse_args()
 #  Run python3 ~/davgre01/llvm/llvm-project/genopt.py --collate base.genopt > base.go
 # Build:
 #  Build with -mllvm -gen-opt-filename=$1.go
+#  Run python3 ~/davgre01/llvm/llvm-project/genopt.py --run base.go -j 50
 
 
 def collate(file):
@@ -53,7 +54,7 @@ def collate(file):
         if key not in map:
           map[key] = []
         map[key].append(split[3])
-        map[split[0] +' '+split[1]+' Other'] = [0]
+        map[split[0] +' '+split[1]+' Other'] = ["0"]
 
   for k in sorted(map.keys()):
     print(k + " " + " ".join(map[k]))
@@ -116,6 +117,8 @@ def mutateOne(key, v):
     elif r == 8:
       TF = not TF
     return str(VF << 24 | IC << 16 | EF << 8 | (0x4 if VFs else 0) | (0x2 if EFs else 0) | (0x1 if TF else 0))
+  elif g == "FuncSpec":
+    return "1" if v == "0" else "0"
   assert(False)
 
 def mutateOneSimple(key, v):
@@ -135,6 +138,8 @@ def mutateOneSimple(key, v):
       IC = 0
       VFs = 0
     return str(VF << 24 | IC << 16 | EF << 8 | (0x4 if VFs else 0) | (0x2 if EFs else 0) | (0x1 if TF else 0))
+  elif g == "FuncSpec":
+    return "1" if v == "0" else "0"
   assert(False)
 
 

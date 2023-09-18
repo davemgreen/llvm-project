@@ -25,6 +25,42 @@
 
 using namespace llvm;
 
+extern cl::opt<std::string> GenOptPrefix;
+extern cl::opt<std::string> GenOptFilename;
+
+#include <iostream>
+#include <fstream>
+#include <llvm/ADT/StringExtras.h>
+unsigned GenOptRead(StringRef Name) {
+  static StringMap<unsigned> Idxs;
+  assert(GenOptFilename != "");
+  assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
+  std::string N = Name.str();
+  if (!Idxs.contains(N))
+    Idxs[N] = 0;
+  unsigned Idx = Idxs[N]++;
+
+  std::string line;
+  std::ifstream file;
+  file.open(GenOptFilename);
+  while (std::getline(file, line)) {
+    SmallVector<StringRef> Cs;
+    SplitString(line, Cs);
+    if (Cs[0] == GenOptPrefix && Cs[1] == "FuncSpec" && Cs[2] == Name) {
+      if (Idx >= Cs.size() - 3)
+        Idx = Idx%(Cs.size() - 3);
+      return atoi(Cs[Idx + 3].data());
+    }
+  }
+  dbgs() << "Returning 0 for GenOptPrefix: " << GenOptPrefix << " Name: " << Name << "\n";
+  return 0;
+}
+
+void GenOptWrite(StringRef Name, bool DoIt) {
+  DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " FuncSpec " << Name
+                                   << " " << DoIt << "\n");
+}
+
 #define DEBUG_TYPE "function-specialization"
 
 STATISTIC(NumSpecsCreated, "Number of specializations created");
@@ -82,7 +118,7 @@ static cl::opt<bool> SpecializeOnAddress(
 // https://llvm-compile-time-tracker.com
 // https://github.com/nikic/llvm-compile-time-tracker
 static cl::opt<bool> SpecializeLiteralConstant(
-    "funcspec-for-literal-constant", cl::init(false), cl::Hidden, cl::desc(
+    "funcspec-for-literal-constant", cl::init(true), cl::Hidden, cl::desc(
     "Enable specialization of functions that take a literal constant as an "
     "argument"));
 
@@ -808,8 +844,10 @@ bool FunctionSpecializer::findSpecializations(Function *F, unsigned FuncSize,
 
       FunctionGrowth[F] += FuncSize - B.CodeSize;
 
-      auto IsProfitable = [](Bonus &B, unsigned Score, unsigned FuncSize,
-                             unsigned FuncGrowth) -> bool {
+      auto IsProfitable = [&](Bonus &B, unsigned Score, unsigned FuncSize,
+                              unsigned FuncGrowth) -> bool {
+        if (GenOptFilename != "")
+          return GenOptRead(F->getName());
         // No check required.
         if (ForceSpecialization)
           return true;
@@ -829,8 +867,13 @@ bool FunctionSpecializer::findSpecializations(Function *F, unsigned FuncSize,
       };
 
       // Discard unprofitable specialisations.
-      if (!IsProfitable(B, Score, FuncSize, FunctionGrowth[F]))
+      if (!IsProfitable(B, Score, FuncSize, FunctionGrowth[F])) {
+        GenOptWrite(F->getName(), false);
         continue;
+      }
+      else {
+        GenOptWrite(F->getName(), true);
+      }
 
       // Create a new specialisation entry.
       Score += std::max(B.CodeSize, B.Latency);

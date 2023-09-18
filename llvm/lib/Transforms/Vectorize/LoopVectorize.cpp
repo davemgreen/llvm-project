@@ -156,10 +156,10 @@ using namespace llvm;
 // 1,2,4,8,16,32, 1,2,4,8, 1,2,4,8,16,32, 1
 // decode(X) vf = (x & 0xff000000) >> 24, ic = (x & 0xff0000) >> 16, ef = (x & 0xff00) >> 8, foldtail=x&1
 
-static cl::opt<std::string> GenOptPrefix(
+cl::opt<std::string> GenOptPrefix(
     "gen-opt-prefix", cl::init(""), cl::Hidden,
     cl::desc("GenOptPrefix"));
-static cl::opt<std::string> GenOptFilename(
+cl::opt<std::string> GenOptFilename(
     "gen-opt-filename", cl::init(""), cl::Hidden,
     cl::desc("GenOptFilename"));
 
