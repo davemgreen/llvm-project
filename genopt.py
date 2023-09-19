@@ -119,6 +119,11 @@ def mutateOne(key, v):
     return str(VF << 24 | IC << 16 | EF << 8 | (0x4 if VFs else 0) | (0x2 if EFs else 0) | (0x1 if TF else 0))
   elif g == "FuncSpec" or g == "Inline":
     return "1" if v == "0" else "0"
+  elif g == "LoopUnroll":
+    if int(v) == 0:
+      return "2"
+    else:
+      return str(random.choice([int(v)*2, int(v)/2]))
   assert(False)
 
 def mutateOneSimple(key, v):
@@ -140,6 +145,11 @@ def mutateOneSimple(key, v):
     return str(VF << 24 | IC << 16 | EF << 8 | (0x4 if VFs else 0) | (0x2 if EFs else 0) | (0x1 if TF else 0))
   elif g == "FuncSpec" or g == "Inline":
     return "1" if v == "0" else "0"
+  elif g == "LoopUnroll":
+    if int(v) == 0:
+      return "4"
+    else:
+      return "0"
   assert(False)
 
 
@@ -280,7 +290,8 @@ def pickOne(L, scores, best, worst):
     s = scores[r]
     if not s:
       continue
-    p = pow(1 - (s - best)/(worst - best), 3)
+    de = 1 if worst==best else worst-best
+    p = pow(1 - (s - best)/de, 3)
     if random.random() < p:
       return h
 
@@ -315,16 +326,18 @@ if args.run:
     best = min([s for s in scores if s])
     worst = max([s for s in scores if s])
     ngen = []
-    for l in range(len(gen)):
+    while len(ngen) < len(gen):
       a = pickOne(gen, scores, best, worst)
       b = pickOne(gen, scores, best, worst)
       c = combineAndMutate(a, b)
-      ngen += [c]
+      if c not in ngen:
+        ngen += [c]
     return ngen
 
-  baseshas = mutateAll(args.run)
-  logging.debug(f"Starting from {len(baseshas)} keys, with a best of {min(baseshas.values())}")
-  gen = sorted(baseshas, key=baseshas.get)[:50]
+  #baseshas = mutateAll(args.run)
+  #logging.debug(f"Starting from {len(baseshas)} keys, with a best of {min(baseshas.values())}")
+  #gen = sorted(baseshas, key=baseshas.get)[:50]
+  gen = [args.run]*50
   pool = multiprocessing.Pool(args.parallel)
   while True:
     logging.debug(f"Current generation: {gen}")

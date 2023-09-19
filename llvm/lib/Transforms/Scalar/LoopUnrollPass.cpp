@@ -69,6 +69,44 @@
 
 using namespace llvm;
 
+extern cl::opt<std::string> GenOptPrefix;
+extern cl::opt<std::string> GenOptFilename;
+
+static void GenOptWrite(StringRef N, unsigned Count) {
+  DEBUG_WITH_TYPE("genopt",
+                  dbgs() << GenOptPrefix << " LoopUnroll " << N << " "
+                         << Count << "\n");
+}
+
+#include <iostream>
+#include <fstream>
+#include <llvm/ADT/StringExtras.h>
+static unsigned GenOptRead(StringRef N) {
+  static StringMap<unsigned> Idxs;
+  if (GenOptFilename == "")
+    return 0;
+  assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
+  if (!Idxs.contains(N))
+    Idxs[N] = 0;
+  unsigned Idx = Idxs[N]++;
+
+  std::string line;
+  std::ifstream file;
+  file.open(GenOptFilename);
+  while (std::getline(file, line)) {
+    SmallVector<StringRef> Cs;
+    SplitString(line, Cs);
+    if (Cs[0] == GenOptPrefix && Cs[1] == "LoopUnroll" && Cs[2] == N) {
+      //assert(Idx < Cs.size() - 3);
+      if (Idx >= Cs.size() - 3)
+        break;
+      return atoi(Cs[Idx + 3].data());
+    }
+  }
+  dbgs() << "GenOptNotFound: " << GenOptPrefix << " LoopUnroll " << N << "\n";
+  return 0;
+}
+
 #define DEBUG_TYPE "loop-unroll"
 
 cl::opt<bool> llvm::ForgetSCEVInLoopUnroll(
@@ -1279,6 +1317,14 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
   bool IsCountSetExplicitly = computeUnrollCount(
     L, TTI, DT, LI, &AC, SE, EphValues, &ORE, TripCount, MaxTripCount, MaxOrZero,
       TripMultiple, LoopSize, UP, PP, UseUpperBound);
+  if (GenOptFilename != "") {
+    UP.Count = GenOptRead(L->getHeader()->getParent()->getName());
+    if (UP.Count > MaxTripCount)
+      UP.Count = MaxTripCount;
+    if (UP.Count * LoopSize > 20000)
+      UP.Count = 0;
+  }
+  GenOptWrite(L->getHeader()->getParent()->getName(), UP.Count);
   if (!UP.Count)
     return LoopUnrollResult::Unmodified;
 
