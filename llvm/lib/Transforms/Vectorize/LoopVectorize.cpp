@@ -183,7 +183,7 @@ void GenOptWrite(Loop* L, ElementCount VF, int IC, ElementCount EF, bool FoldTai
 #include <iostream>
 #include <fstream>
 #include <llvm/ADT/StringExtras.h>
-unsigned GetGenOpt(Function *F) {
+unsigned GenOptRead(Function *F) {
   static StringMap<unsigned> Idxs;
   if (GenOptFilename == "")
     return 0;
@@ -211,7 +211,7 @@ unsigned GetGenOpt(Function *F) {
       Other = atoi(Cs[IdxO + 3].data());
     }
   }
-  dbgs() << "Returning other for GenOptPrefix: " << GenOptPrefix << " N: " << N << "\n";
+  dbgs() << "GenOptNotFound: " << GenOptPrefix << " LoopVectorizer " << N << "\n";
   return Other;
 }
 
@@ -10018,7 +10018,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     }
   }
 
-  unsigned GenOpt = GetGenOpt(L->getHeader()->getParent());
+  unsigned GenOpt = GenOptRead(L->getHeader()->getParent());
   LLVM_DEBUG(dbgs() << "GenOpt: " << GenOpt << "\n");
   if (GenOptFilename != "") {
     if ((GenOpt & 0x1) && (SEL == CM_ScalarEpilogueAllowed))

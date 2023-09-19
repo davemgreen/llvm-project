@@ -67,6 +67,43 @@
 
 using namespace llvm;
 
+extern cl::opt<std::string> GenOptPrefix;
+extern cl::opt<std::string> GenOptFilename;
+
+#include <iostream>
+#include <fstream>
+#include <llvm/ADT/StringExtras.h>
+bool GenOptRead(StringRef Name1, StringRef Name2) {
+  static StringMap<unsigned> Idxs;
+  assert(GenOptFilename != "");
+  assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
+  std::string N = (Name1 + ">" + Name2).str();
+  if (!Idxs.contains(N))
+    Idxs[N] = 0;
+  unsigned Idx = Idxs[N]++;
+
+  std::string line;
+  std::ifstream file;
+  file.open(GenOptFilename);
+  while (std::getline(file, line)) {
+    SmallVector<StringRef> Cs;
+    SplitString(line, Cs);
+    if (Cs[0] == GenOptPrefix && Cs[1] == "Inline" && Cs[2] == N) {
+      if (Idx >= Cs.size() - 3)
+        Idx = Idx%(Cs.size() - 3);
+      return atoi(Cs[Idx + 3].data());
+    }
+  }
+  dbgs() << "GenOptNotFound: " << GenOptPrefix << " Inline " << Name1 << ">"
+         << Name2 << "\n";
+  return false;
+}
+
+void GenOptWrite(StringRef Name1, StringRef Name2, bool DoIt) {
+  DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " Inline " << Name1 << ">"
+                                   << Name2 << " " << DoIt << "\n");
+}
+
 #define DEBUG_TYPE "inline"
 
 STATISTIC(NumInlined, "Number of functions inlined");
@@ -357,13 +394,18 @@ PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
           Advisor.getAdvice(*CB, OnlyMandatory);
 
       // Check whether we want to inline this callsite.
-      if (!Advice)
-        continue;
-
-      if (!Advice->isInliningRecommended()) {
+      auto DoIt = [&]() {
+        if (GenOptFilename != "")
+          return GenOptRead(F.getName(), Callee.getName());
+        return Advice && Advice->isInliningRecommended();
+      };
+      if (!DoIt()) {
+        GenOptWrite(F.getName(), Callee.getName(), false);
         Advice->recordUnattemptedInlining();
         continue;
       }
+      else
+        GenOptWrite(F.getName(), Callee.getName(), true);
 
       int CBCostMult =
           getStringFnAttrAsInt(

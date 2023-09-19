@@ -117,7 +117,7 @@ def mutateOne(key, v):
     elif r == 8:
       TF = not TF
     return str(VF << 24 | IC << 16 | EF << 8 | (0x4 if VFs else 0) | (0x2 if EFs else 0) | (0x1 if TF else 0))
-  elif g == "FuncSpec":
+  elif g == "FuncSpec" or g == "Inline":
     return "1" if v == "0" else "0"
   assert(False)
 
@@ -138,7 +138,7 @@ def mutateOneSimple(key, v):
       IC = 0
       VFs = 0
     return str(VF << 24 | IC << 16 | EF << 8 | (0x4 if VFs else 0) | (0x2 if EFs else 0) | (0x1 if TF else 0))
-  elif g == "FuncSpec":
+  elif g == "FuncSpec" or g == "Inline":
     return "1" if v == "0" else "0"
   assert(False)
 

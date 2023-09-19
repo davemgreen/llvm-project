@@ -52,7 +52,7 @@ unsigned GenOptRead(StringRef Name) {
       return atoi(Cs[Idx + 3].data());
     }
   }
-  dbgs() << "Returning 0 for GenOptPrefix: " << GenOptPrefix << " Name: " << Name << "\n";
+  dbgs() << "GenOptNotFound: " << GenOptPrefix << " FuncSpec " << Name << "\n";
   return 0;
 }
 
