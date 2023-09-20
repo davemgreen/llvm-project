@@ -31,7 +31,7 @@ extern cl::opt<std::string> GenOptFilename;
 #include <iostream>
 #include <fstream>
 #include <llvm/ADT/StringExtras.h>
-unsigned GenOptRead(StringRef Name) {
+static bool GenOptRead(StringRef Name) {
   static StringMap<unsigned> Idxs;
   assert(GenOptFilename != "");
   assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
@@ -48,15 +48,15 @@ unsigned GenOptRead(StringRef Name) {
     SplitString(line, Cs);
     if (Cs[0] == GenOptPrefix && Cs[1] == "FuncSpec" && Cs[2] == Name) {
       if (Idx >= Cs.size() - 3)
-        Idx = Idx%(Cs.size() - 3);
+        break;
       return atoi(Cs[Idx + 3].data());
     }
   }
   dbgs() << "GenOptNotFound: " << GenOptPrefix << " FuncSpec " << Name << "\n";
-  return 0;
+  return false;
 }
 
-void GenOptWrite(StringRef Name, bool DoIt) {
+static void GenOptWrite(StringRef Name, bool DoIt) {
   DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " FuncSpec " << Name
                                    << " " << DoIt << "\n");
 }

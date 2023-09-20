@@ -54,7 +54,6 @@ def collate(file):
         if key not in map:
           map[key] = []
         map[key].append(split[3])
-        map[split[0] +' '+split[1]+' Other'] = ["0"]
 
   for k in sorted(map.keys()):
     print(k + " " + " ".join(map[k]))
@@ -197,23 +196,40 @@ def loadResult(sha):
     f = open("genopt/"+sha+".log", "r")
     for l in f:
       if args.measure in l:
-        return float(l.strip().split(' ')[0])
+        return float(l.strip().split(' ')[0].replace(',',''))
     raise ValueError("Didn't find instructions")
   else:
     return os.path.getsize("genopt/"+sha+".exe")
 
 def buildAndRun(sha):
-  os.system("bash ./build_genopt.sh " + sha)
+  Done = False
+  while not Done:
+    Done = True
+    output = os.popen("bash ./build_genopt.sh " + sha + " 2>&1").read()
+    print(output)
+    if "GenOptNotFound" in output:
+      Done = False
+      D = openF("genopt/"+sha+".go")
+      for l in output.split('\n'):
+        if l.startswith("GenOptNotFound:"):
+          split = l.strip().split(' ')
+          key = split[1] + ' ' + split[2] + ' ' + split[3]
+          if key not in D:
+            D[key] = []
+          D[key] += ["0"]
+      sha = writeF(D)
+      logging.debug(f"new sha: {sha}")
   os.system("bash ./run_genopt.sh " + sha)
+  return sha
 
 # Build and run if it the log file isn't already present
 def buildAndRunIfNeeded(sha):
   try:
-    return loadResult(sha)
+    return (sha, loadResult(sha))
   except (ValueError, OSError):
-    buildAndRun(sha)
+    sha = buildAndRun(sha)
     try:
-      return loadResult(sha)
+      return (sha, loadResult(sha))
     except:
       return None
 
@@ -227,14 +243,14 @@ if args.mutate:
   assert(int(args.mutate[1]) < totalSize)
   D = mutateAt(D, int(args.mutate[1]))
   sha = writeF(D)
-  s = buildAndRunIfNeeded(sha)
+  (sha, s) = buildAndRunIfNeeded(sha)
   if s:
     logging.debug(f"Score of {sha} is {s}")
 
 def runner(D, Idx):
   E = mutateAt(D, Idx, mutateOneSimple)
   sha = writeF(E)
-  s = buildAndRunIfNeeded(sha)
+  (sha, s) = buildAndRunIfNeeded(sha)
   logging.debug(sha + ": " + str(s))
   return (sha, s)
 def mutateAll(basefile):
@@ -254,8 +270,8 @@ if args.mutateAll:
 
 
 if args.buildandrun:
-  buildAndRun(args.buildandrun)
-  logging.debug(loadResult(args.buildandrun))
+  sha = buildAndRun(args.buildandrun)
+  logging.debug(loadResult(sha))
 if args.buildandrunall:
   fns = sorted([fn[:-3] for fn in os.listdir("genopt") if (fn.endswith(".go") and not os.path.exists("genopt/"+fn[:-2]+"log"))])
   logging.debug(f"Running {len(fns)} hashes")
@@ -283,11 +299,13 @@ def loadAllResults():
         worst = S[H]
   return S, best, worst
 
-def pickOne(L, scores, best, worst):
+def pickOne(scores, best, worst):
   while True:
-    r = random.randrange(len(L))
-    h = L[r]
-    s = scores[r]
+    r = random.randrange(len(scores))
+    if not scores[r]:
+      continue
+    h = scores[r][0]
+    s = scores[r][1]
     if not s:
       continue
     de = 1 if worst==best else worst-best
@@ -322,13 +340,15 @@ if args.run:
   #      logging.debug(f"  new best!")
   #      best = L[c]
 
-  def updateGeneration(gen, scores):
-    best = min([s for s in scores if s])
-    worst = max([s for s in scores if s])
+  def updateGeneration(scores):
+    gen = [s[0] for s in scores if s]
+    ss = [s[1] for s in scores if s]
+    best = min(ss)
+    worst = max(ss)
     ngen = []
-    while len(ngen) < len(gen):
-      a = pickOne(gen, scores, best, worst)
-      b = pickOne(gen, scores, best, worst)
+    while len(ngen) < len(scores):
+      a = pickOne(scores, best, worst)
+      b = pickOne(scores, best, worst)
       c = combineAndMutate(a, b)
       if c not in ngen:
         ngen += [c]
@@ -343,5 +363,5 @@ if args.run:
     logging.debug(f"Current generation: {gen}")
     scores = pool.map(buildAndRunIfNeeded, gen)
     logging.debug(f"  scores: {scores}")
-    logging.debug(f"  best score: {min([s for s in scores if s])}, avg score: {statistics.mean([s for s in scores if s])}")
-    gen = updateGeneration(gen, scores)
+    logging.debug(f"  best score: {min([s[1] for s in scores if s])}, avg score: {statistics.mean([s[1] for s in scores if s])}")
+    gen = updateGeneration(scores)

@@ -83,8 +83,7 @@ static void GenOptWrite(StringRef N, unsigned Count) {
 #include <llvm/ADT/StringExtras.h>
 static unsigned GenOptRead(StringRef N) {
   static StringMap<unsigned> Idxs;
-  if (GenOptFilename == "")
-    return 0;
+  assert(GenOptFilename != "");
   assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
   if (!Idxs.contains(N))
     Idxs[N] = 0;
@@ -97,7 +96,6 @@ static unsigned GenOptRead(StringRef N) {
     SmallVector<StringRef> Cs;
     SplitString(line, Cs);
     if (Cs[0] == GenOptPrefix && Cs[1] == "LoopUnroll" && Cs[2] == N) {
-      //assert(Idx < Cs.size() - 3);
       if (Idx >= Cs.size() - 3)
         break;
       return atoi(Cs[Idx + 3].data());

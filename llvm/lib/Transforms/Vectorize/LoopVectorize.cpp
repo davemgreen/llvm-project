@@ -185,8 +185,7 @@ void GenOptWrite(Loop* L, ElementCount VF, int IC, ElementCount EF, bool FoldTai
 #include <llvm/ADT/StringExtras.h>
 unsigned GenOptRead(Function *F) {
   static StringMap<unsigned> Idxs;
-  if (GenOptFilename == "")
-    return 0;
+  assert(GenOptFilename != "");
   assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
   std::string N = F->getName().str();
   if (!Idxs.contains(N))
@@ -196,23 +195,18 @@ unsigned GenOptRead(Function *F) {
   std::string line;
   std::ifstream file;
   file.open(GenOptFilename);
-  unsigned Other = 0;
   while (std::getline(file, line)) {
     SmallVector<StringRef> Cs;
     SplitString(line, Cs);
     if (Cs[0] == GenOptPrefix && Cs[1] == "LoopVectorizer" && Cs[2] == N) {
       //assert(Idx < Cs.size() - 3);
       if (Idx >= Cs.size() - 3)
-        Idx = Idx%(Cs.size() - 3);
+        break;
       return atoi(Cs[Idx + 3].data());
-    }
-    if (Cs[0] == GenOptPrefix && Cs[1] == "LoopVectorizer" && Cs[2] == "Other") {
-      unsigned IdxO = Idx % (Cs.size() - 3);
-      Other = atoi(Cs[IdxO + 3].data());
     }
   }
   dbgs() << "GenOptNotFound: " << GenOptPrefix << " LoopVectorizer " << N << "\n";
-  return Other;
+  return 0;
 }
 
 ElementCount GenOptGetVF(unsigned GenOpt) {
@@ -10018,9 +10012,10 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     }
   }
 
-  unsigned GenOpt = GenOptRead(L->getHeader()->getParent());
-  LLVM_DEBUG(dbgs() << "GenOpt: " << GenOpt << "\n");
+  unsigned GenOpt = 0;
   if (GenOptFilename != "") {
+    GenOpt = GenOptRead(L->getHeader()->getParent());
+    LLVM_DEBUG(dbgs() << "GenOpt: " << GenOpt << "\n");
     if ((GenOpt & 0x1) && (SEL == CM_ScalarEpilogueAllowed))
       SEL = CM_ScalarEpilogueNotNeededUsePredicate;
     else if (!(GenOpt & 0x1) && (SEL != CM_ScalarEpilogueNotNeededUsePredicate))

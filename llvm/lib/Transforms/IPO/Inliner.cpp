@@ -90,7 +90,7 @@ bool GenOptRead(StringRef Name1, StringRef Name2) {
     SplitString(line, Cs);
     if (Cs[0] == GenOptPrefix && Cs[1] == "Inline" && Cs[2] == N) {
       if (Idx >= Cs.size() - 3)
-        Idx = Idx%(Cs.size() - 3);
+        break;
       return atoi(Cs[Idx + 3].data());
     }
   }
@@ -395,7 +395,7 @@ PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
 
       // Check whether we want to inline this callsite.
       auto DoIt = [&]() {
-        if (GenOptFilename != "")
+        if (!OnlyMandatory && GenOptFilename != "")
           return GenOptRead(F.getName(), Callee.getName());
         return Advice && Advice->isInliningRecommended();
       };
@@ -404,7 +404,7 @@ PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
         Advice->recordUnattemptedInlining();
         continue;
       }
-      else
+      else if (!OnlyMandatory)
         GenOptWrite(F.getName(), Callee.getName(), true);
 
       int CBCostMult =
