@@ -122,7 +122,7 @@ def mutateOne(key, v):
     if int(v) == 0:
       return "2"
     else:
-      return str(random.choice([int(v)*2, int(v)/2]))
+      return str(random.choice([int(v)*2, int(v)//2]))
   assert(False)
 
 def mutateOneSimple(key, v):

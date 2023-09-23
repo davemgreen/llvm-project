@@ -395,8 +395,8 @@ PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
 
       // Check whether we want to inline this callsite.
       auto DoIt = [&]() {
-        if (!OnlyMandatory && GenOptFilename != "")
-          return GenOptRead(F.getName(), Callee.getName());
+        if (GenOptFilename != "")
+          return GenOptRead(F.getName(), Callee.getName()) && !OnlyMandatory;
         return Advice && Advice->isInliningRecommended();
       };
       if (!DoIt()) {

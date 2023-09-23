@@ -174,20 +174,30 @@ unsigned GenOptEncodeVF(ElementCount VFs, int IC, ElementCount EFs, bool FoldTai
          (FoldTail ? 1 : 0);
 }
 
-void GenOptWrite(Loop* L, ElementCount VF, int IC, ElementCount EF, bool FoldTail) {
-  DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " LoopVectorizer "
-         << L->getHeader()->getParent()->getName() << " "
-         << GenOptEncodeVF(VF, IC, EF, FoldTail) << "\n");
+void GenOptWrite(StringRef LV, Twine Name, unsigned Val) {
+  DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " " << LV << " " << Name
+                                   << " " << Val << "\n");
+}
+static void GenOptLVWrite(Loop *L, ElementCount VF, int IC, ElementCount EF,
+                          bool FoldTail) {
+  if (L->getStartLoc()) {
+    Twine N = L->getHeader()->getParent()->getName() + ":" +
+              Twine(L->getStartLoc().getLine());
+    GenOptWrite("LoopVectorizer", N, GenOptEncodeVF(VF, IC, EF, FoldTail));
+  } else {
+    Twine N = L->getHeader()->getParent()->getName();
+    GenOptWrite("LoopVectorizer", N, GenOptEncodeVF(VF, IC, EF, FoldTail));
+  }
 }
 
 #include <iostream>
 #include <fstream>
 #include <llvm/ADT/StringExtras.h>
-unsigned GenOptRead(Function *F) {
+unsigned GenOptRead(StringRef LV, Twine Name) {
   static StringMap<unsigned> Idxs;
   assert(GenOptFilename != "");
   assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
-  std::string N = F->getName().str();
+  std::string N = Name.str();
   if (!Idxs.contains(N))
     Idxs[N] = 0;
   unsigned Idx = Idxs[N]++;
@@ -198,15 +208,23 @@ unsigned GenOptRead(Function *F) {
   while (std::getline(file, line)) {
     SmallVector<StringRef> Cs;
     SplitString(line, Cs);
-    if (Cs[0] == GenOptPrefix && Cs[1] == "LoopVectorizer" && Cs[2] == N) {
+    if (Cs[0] == GenOptPrefix && Cs[1] == LV && Cs[2] == N) {
       //assert(Idx < Cs.size() - 3);
       if (Idx >= Cs.size() - 3)
         break;
       return atoi(Cs[Idx + 3].data());
     }
   }
-  dbgs() << "GenOptNotFound: " << GenOptPrefix << " LoopVectorizer " << N << "\n";
+  dbgs() << "GenOptNotFound: " << GenOptPrefix << " " << LV << " " << N << "\n";
   return 0;
+}
+static unsigned GenOptLVRead(Loop *L) {
+  if (L->getStartLoc())
+    return GenOptRead("LoopVectorizer", L->getHeader()->getParent()->getName() +
+                                            ":" +
+                                            Twine(L->getStartLoc().getLine()));
+  else
+    return GenOptRead("LoopVectorizer", L->getHeader()->getParent()->getName());
 }
 
 ElementCount GenOptGetVF(unsigned GenOpt) {
@@ -10012,16 +10030,6 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     }
   }
 
-  unsigned GenOpt = 0;
-  if (GenOptFilename != "") {
-    GenOpt = GenOptRead(L->getHeader()->getParent());
-    LLVM_DEBUG(dbgs() << "GenOpt: " << GenOpt << "\n");
-    if ((GenOpt & 0x1) && (SEL == CM_ScalarEpilogueAllowed))
-      SEL = CM_ScalarEpilogueNotNeededUsePredicate;
-    else if (!(GenOpt & 0x1) && (SEL != CM_ScalarEpilogueNotNeededUsePredicate))
-      SEL = CM_ScalarEpilogueAllowed;
-  }
-
   // Check the function attributes to see if implicit floats or vectors are
   // allowed.
   if (F->hasFnAttribute(Attribute::NoImplicitFloat)) {
@@ -10068,6 +10076,16 @@ bool LoopVectorizePass::processLoop(Loop *L) {
     return false;
   }
 
+  unsigned GenOpt = 0;
+  if (GenOptFilename != "") {
+    GenOpt = GenOptLVRead(L);
+    LLVM_DEBUG(dbgs() << "GenOpt: " << GenOpt << "\n");
+    if ((GenOpt & 0x1) && (SEL == CM_ScalarEpilogueAllowed))
+      SEL = CM_ScalarEpilogueNotNeededUsePredicate;
+    else if (!(GenOpt & 0x1) && (SEL != CM_ScalarEpilogueNotNeededUsePredicate))
+      SEL = CM_ScalarEpilogueAllowed;
+  }
+
   // Use the cost model.
   LoopVectorizationCostModel CM(SEL, L, PSE, LI, &LVL, *TTI, TLI, DB, AC, ORE,
                                 F, &Hints, IAI);
@@ -10090,7 +10108,9 @@ bool LoopVectorizePass::processLoop(Loop *L) {
   if (MaybeVF) {
     VF = *MaybeVF;
     // Select the interleave count.
-    IC = GenOptFilename != "" ? CM.selectInterleaveCount(VF.Width, VF.Cost) : GenOptGetIC(GenOpt);
+    IC = CM.selectInterleaveCount(VF.Width, VF.Cost);
+    if (GenOptFilename != "")
+      IC = GenOptGetIC(GenOpt);
 
     unsigned SelectedIC = std::max(IC, UserIC);
     //  Optimistically generate runtime checks if they are needed. Drop them if
@@ -10112,7 +10132,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                   "memory operations";
       });
       LLVM_DEBUG(dbgs() << "LV: Too many memory checks needed.\n");
-      GenOptWrite(L, VF.Width, IC, ElementCount::getFixed(1), CM.foldTailByMasking());
+      GenOptLVWrite(L, VF.Width, IC, ElementCount::getFixed(1), CM.foldTailByMasking());
       Hints.emitRemarkWithHints();
       return false;
     }
@@ -10178,7 +10198,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                                       L->getStartLoc(), L->getHeader())
              << IntDiagMsg.second;
     });
-    GenOptWrite(L, VF.Width, IC, ElementCount::getFixed(1),
+    GenOptLVWrite(L, VF.Width, IC, ElementCount::getFixed(1),
                 CM.foldTailByMasking());
     return false;
   } else if (!VectorizeLoop && InterleaveLoop) {
@@ -10222,7 +10242,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
                << "interleaved loop (interleaved count: "
                << NV("InterleaveCount", IC) << ")";
       });
-      GenOptWrite(L, VF.Width, IC, ElementCount::getFixed(1),
+      GenOptLVWrite(L, VF.Width, IC, ElementCount::getFixed(1),
                          CM.foldTailByMasking());
     } else {
       // If we decided that it is *legal* to vectorize the loop, then do it.
@@ -10331,7 +10351,7 @@ bool LoopVectorizePass::processLoop(Loop *L) {
       }
       // Report the vectorization decision.
       reportVectorization(ORE, L, VF, IC);
-      GenOptWrite(L, VF.Width, IC, EpilogueVF.Width, CM.foldTailByMasking());
+      GenOptLVWrite(L, VF.Width, IC, EpilogueVF.Width, CM.foldTailByMasking());
     }
 
     if (ORE->allowExtraAnalysis(LV_NAME))

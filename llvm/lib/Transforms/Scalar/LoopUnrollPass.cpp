@@ -72,19 +72,27 @@ using namespace llvm;
 extern cl::opt<std::string> GenOptPrefix;
 extern cl::opt<std::string> GenOptFilename;
 
-static void GenOptWrite(StringRef N, unsigned Count) {
-  DEBUG_WITH_TYPE("genopt",
-                  dbgs() << GenOptPrefix << " LoopUnroll " << N << " "
-                         << Count << "\n");
+static void GenOptWrite(Loop *L, unsigned Count) {
+  if (L->getStartLoc()) {
+    Twine N = Twine(L->getHeader()->getParent()->getName()) + ":" +
+              Twine(L->getStartLoc().getLine());
+    DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " LoopUnroll "
+                                    << N << " " << Count << "\n");
+  } else {
+    Twine N = Twine(L->getHeader()->getParent()->getName());
+    DEBUG_WITH_TYPE("genopt", dbgs() << GenOptPrefix << " LoopUnroll "
+                                    << N << " " << Count << "\n");
+  }
 }
 
 #include <iostream>
 #include <fstream>
 #include <llvm/ADT/StringExtras.h>
-static unsigned GenOptRead(StringRef N) {
+static unsigned GenOptRead_(StringRef LV, Twine S) {
   static StringMap<unsigned> Idxs;
   assert(GenOptFilename != "");
   assert(GenOptPrefix != "" && "Remember to set GenOptPrefix");
+  std::string N = S.str();
   if (!Idxs.contains(N))
     Idxs[N] = 0;
   unsigned Idx = Idxs[N]++;
@@ -95,14 +103,22 @@ static unsigned GenOptRead(StringRef N) {
   while (std::getline(file, line)) {
     SmallVector<StringRef> Cs;
     SplitString(line, Cs);
-    if (Cs[0] == GenOptPrefix && Cs[1] == "LoopUnroll" && Cs[2] == N) {
+    if (Cs[0] == GenOptPrefix && Cs[1] == LV && Cs[2] == N) {
       if (Idx >= Cs.size() - 3)
         break;
       return atoi(Cs[Idx + 3].data());
     }
   }
-  dbgs() << "GenOptNotFound: " << GenOptPrefix << " LoopUnroll " << N << "\n";
+  dbgs() << "GenOptNotFound: " << GenOptPrefix << " " << LV << " " << N << "\n";
   return 0;
+}
+static unsigned GenOptRead(Loop *L) {
+  if (L->getStartLoc())
+    return GenOptRead_("LoopUnroll", L->getHeader()->getParent()->getName() +
+                                         ":" +
+                                         Twine(L->getStartLoc().getLine()));
+  else
+    return GenOptRead_("LoopUnroll", L->getHeader()->getParent()->getName());
 }
 
 #define DEBUG_TYPE "loop-unroll"
@@ -1316,13 +1332,14 @@ tryToUnrollLoop(Loop *L, DominatorTree &DT, LoopInfo *LI, ScalarEvolution &SE,
     L, TTI, DT, LI, &AC, SE, EphValues, &ORE, TripCount, MaxTripCount, MaxOrZero,
       TripMultiple, LoopSize, UP, PP, UseUpperBound);
   if (GenOptFilename != "") {
-    UP.Count = GenOptRead(L->getHeader()->getParent()->getName());
-    if (UP.Count > MaxTripCount)
-      UP.Count = MaxTripCount;
-    if (UP.Count * LoopSize > 20000)
-      UP.Count = 0;
+    unsigned Count = GenOptRead(L);
+    if (MaxTripCount && Count > MaxTripCount)
+      Count = MaxTripCount;
+    if (Count * LoopSize > 20000)
+      Count = std::max(UP.Count, Count);
+    UP.Count = Count;
   }
-  GenOptWrite(L->getHeader()->getParent()->getName(), UP.Count);
+  GenOptWrite(L, UP.Count);
   if (!UP.Count)
     return LoopUnrollResult::Unmodified;
 
