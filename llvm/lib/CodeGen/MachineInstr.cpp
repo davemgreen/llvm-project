@@ -1306,10 +1306,11 @@ static bool MemOperandsHaveAlias(const MachineFrameInfo &MFI, AAResults *AA,
   int64_t OffsetB = MMOb->getOffset();
   int64_t MinOffset = std::min(OffsetA, OffsetB);
 
-  uint64_t WidthA = MMOa->getSize();
-  uint64_t WidthB = MMOb->getSize();
-  bool KnownWidthA = WidthA != MemoryLocation::UnknownSize;
-  bool KnownWidthB = WidthB != MemoryLocation::UnknownSize;
+  TypeSize WidthA = MMOa->getSize();
+  TypeSize WidthB = MMOb->getSize();
+  bool KnownWidthA = WidthA.getKnownMinValue() != MemoryLocation::UnknownSize;
+  bool KnownWidthB = WidthB.getKnownMinValue() != MemoryLocation::UnknownSize;
+  bool BothMMONonScalable = !WidthA.isScalable() && !WidthB.isScalable();
 
   const Value *ValA = MMOa->getValue();
   const Value *ValB = MMOb->getValue();
@@ -1325,11 +1326,12 @@ static bool MemOperandsHaveAlias(const MachineFrameInfo &MFI, AAResults *AA,
       SameVal = true;
   }
 
-  if (SameVal) {
+  if (SameVal && BothMMONonScalable) {
     if (!KnownWidthA || !KnownWidthB)
       return true;
     int64_t MaxOffset = std::max(OffsetA, OffsetB);
-    int64_t LowWidth = (MinOffset == OffsetA) ? WidthA : WidthB;
+    int64_t LowWidth = (MinOffset == OffsetA) ? WidthA.getKnownMinValue()
+                                              : WidthB.getKnownMinValue();
     return (MinOffset + LowWidth > MaxOffset);
   }
 
@@ -1342,15 +1344,30 @@ static bool MemOperandsHaveAlias(const MachineFrameInfo &MFI, AAResults *AA,
   assert((OffsetA >= 0) && "Negative MachineMemOperand offset");
   assert((OffsetB >= 0) && "Negative MachineMemOperand offset");
 
-  int64_t OverlapA =
-      KnownWidthA ? WidthA + OffsetA - MinOffset : MemoryLocation::UnknownSize;
-  int64_t OverlapB =
-      KnownWidthB ? WidthB + OffsetB - MinOffset : MemoryLocation::UnknownSize;
+  // If Scalable Location Size has non-zero offset,
+  // Width + Offset does not work at the moment
+  if ((WidthA.isScalable() && (OffsetA > 0)) ||
+      (WidthB.isScalable() && (OffsetB > 0))) {
+    return true;
+  }
+
+  int64_t OverlapA = KnownWidthA
+                         ? WidthA.getKnownMinValue() + OffsetA - MinOffset
+                         : MemoryLocation::UnknownSize;
+  int64_t OverlapB = KnownWidthB
+                         ? WidthB.getKnownMinValue() + OffsetB - MinOffset
+                         : MemoryLocation::UnknownSize;
+
+  LocationSize LocA = WidthA.isScalable() && KnownWidthA
+                          ? LocationSize::precise(WidthA)
+                          : LocationSize(OverlapA);
+  LocationSize LocB = WidthB.isScalable() && KnownWidthB
+                          ? LocationSize::precise(WidthB)
+                          : LocationSize(OverlapB);
 
   return !AA->isNoAlias(
-      MemoryLocation(ValA, OverlapA, UseTBAA ? MMOa->getAAInfo() : AAMDNodes()),
-      MemoryLocation(ValB, OverlapB,
-                     UseTBAA ? MMOb->getAAInfo() : AAMDNodes()));
+      MemoryLocation(ValA, LocA, UseTBAA ? MMOa->getAAInfo() : AAMDNodes()),
+      MemoryLocation(ValB, LocB, UseTBAA ? MMOb->getAAInfo() : AAMDNodes()));
 }
 
 bool MachineInstr::mayAlias(AAResults *AA, const MachineInstr &Other,
