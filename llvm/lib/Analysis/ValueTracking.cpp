@@ -8072,6 +8072,29 @@ llvm::canConvertToMinOrMaxIntrinsic(ArrayRef<Value *> VL) {
   return {Intrinsic::not_intrinsic, false};
 }
 
+SelectPatternFlavor llvm::getSPFForIntrinsic(const Value *V) {
+  if (const auto *II = dyn_cast<IntrinsicInst>(V)) {
+    Intrinsic::ID IID = II->getIntrinsicID();
+    switch (IID) {
+    case Intrinsic::smax:
+      return SPF_SMAX;
+    case Intrinsic::smin:
+      return SPF_SMIN;
+    case Intrinsic::umax:
+      return SPF_UMAX;
+    case Intrinsic::umin:
+      return SPF_UMIN;
+    case Intrinsic::abs:
+      return SPF_ABS;
+    case Intrinsic::minnum:
+      return SPF_FMINNUM;
+    case Intrinsic::maxnum:
+      return SPF_FMAXNUM;
+    }
+  }
+  return SPF_UNKNOWN;
+}
+
 bool llvm::matchSimpleRecurrence(const PHINode *P, BinaryOperator *&BO,
                                  Value *&Start, Value *&Step) {
   // Handle the case of a simple two-predecessor recurrence PHI.

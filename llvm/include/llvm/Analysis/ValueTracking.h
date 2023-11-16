@@ -1120,6 +1120,10 @@ APInt getMinMaxLimit(SelectPatternFlavor SPF, unsigned BitWidth);
 std::pair<Intrinsic::ID, bool>
 canConvertToMinOrMaxIntrinsic(ArrayRef<Value *> VL);
 
+/// Return the SelectPatternFlavor for an intrinsic I, or SPF_UNKNOWN if the
+/// value is not a supported intrinsic.
+SelectPatternFlavor getSPFForIntrinsic(const Value *I);
+
 /// Attempt to match a simple first order recurrence cycle of the form:
 ///   %iv = phi Ty [%Start, %Entry], [%Inc, %backedge]
 ///   %inc = binop %iv, %step

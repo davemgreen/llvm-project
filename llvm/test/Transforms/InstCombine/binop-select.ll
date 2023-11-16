@@ -561,11 +561,8 @@ define i8 @umax_as_select_gen(i8 %e, i8 %b, i8 %f) {
 
 define i8 @umax_as_select_simple(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @umax_as_select_simple(
-; CHECK-NEXT:    [[A_NOT:%.*]] = icmp ult i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A_NOT]], i8 [[F]], i8 [[X]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.umax.i8(i8 [[E]], i8 [[F]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[A_NOT:%.*]] = icmp uge i8 [[E:%.*]], [[F:%.*]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A_NOT]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp uge i8 %e, %f
@@ -610,11 +607,8 @@ define i8 @umax_as_select_unsimplified(i8 %a, i8 %b, i8 %c) {
 
 define i8 @umin_as_select_simple(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @umin_as_select_simple(
-; CHECK-NEXT:    [[A_NOT:%.*]] = icmp ugt i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A_NOT]], i8 [[F]], i8 [[X]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.umin.i8(i8 [[E]], i8 [[F]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[A_NOT:%.*]] = icmp ule i8 [[E:%.*]], [[F:%.*]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A_NOT]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp ule i8 %e, %f
@@ -627,11 +621,8 @@ define i8 @umin_as_select_simple(i8 %e, i8 %f, i8 %b, i8 %c) {
 
 define i8 @smax_as_select_simple(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @smax_as_select_simple(
-; CHECK-NEXT:    [[A_NOT:%.*]] = icmp slt i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A_NOT]], i8 [[F]], i8 [[X]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.smax.i8(i8 [[E]], i8 [[F]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[A_NOT:%.*]] = icmp sge i8 [[E:%.*]], [[F:%.*]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A_NOT]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp sge i8 %e, %f
@@ -644,11 +635,8 @@ define i8 @smax_as_select_simple(i8 %e, i8 %f, i8 %b, i8 %c) {
 
 define i8 @smin_as_select_simple(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @smin_as_select_simple(
-; CHECK-NEXT:    [[A_NOT:%.*]] = icmp sgt i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A_NOT]], i8 [[F]], i8 [[X]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.smin.i8(i8 [[E]], i8 [[F]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[A_NOT:%.*]] = icmp sle i8 [[E:%.*]], [[F:%.*]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A_NOT]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp sle i8 %e, %f
@@ -661,11 +649,8 @@ define i8 @smin_as_select_simple(i8 %e, i8 %f, i8 %b, i8 %c) {
 
 define i8 @smin_as_select_simple_c1(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @smin_as_select_simple_c1(
-; CHECK-NEXT:    [[A_NOT:%.*]] = icmp sgt i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A_NOT]], i8 [[F]], i8 [[X]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.smin.i8(i8 [[F]], i8 [[E]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[A_NOT:%.*]] = icmp sle i8 [[E:%.*]], [[F:%.*]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A_NOT]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp sle i8 %e, %f
@@ -696,10 +681,7 @@ define i8 @smin_as_select_simple_c1_bad(i8 %e, i8 %f, i8 %b, i8 %c) {
 define i8 @smin_as_select_simple_c2(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @smin_as_select_simple_c2(
 ; CHECK-NEXT:    [[A_NOT:%.*]] = icmp slt i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A_NOT]], i8 [[X]], i8 [[F]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.smin.i8(i8 [[E]], i8 [[F]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A_NOT]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp sge i8 %e, %f
@@ -730,10 +712,7 @@ define i8 @smin_as_select_simple_c2_bad(i8 %e, i8 %f, i8 %b, i8 %c) {
 define i8 @smin_as_select_simple_c3(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @smin_as_select_simple_c3(
 ; CHECK-NEXT:    [[A_NOT:%.*]] = icmp slt i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A_NOT]], i8 [[X]], i8 [[F]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.smin.i8(i8 [[F]], i8 [[E]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A_NOT]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp sge i8 %e, %f
@@ -763,11 +742,8 @@ define i8 @smin_as_select_simple_c3_bad(i8 %e, i8 %f, i8 %b, i8 %c) {
 
 define i8 @smax_as_select_simple_c3(i8 %e, i8 %f, i8 %b, i8 %c) {
 ; CHECK-LABEL: @smax_as_select_simple_c3(
-; CHECK-NEXT:    [[A:%.*]] = icmp slt i8 [[E:%.*]], [[F:%.*]]
-; CHECK-NEXT:    [[X:%.*]] = add i8 [[E]], 1
-; CHECK-NEXT:    [[S:%.*]] = select i1 [[A]], i8 [[F]], i8 [[X]]
-; CHECK-NEXT:    [[M:%.*]] = call i8 @llvm.smax.i8(i8 [[F]], i8 [[E]])
-; CHECK-NEXT:    [[R:%.*]] = sub i8 [[S]], [[M]]
+; CHECK-NEXT:    [[A:%.*]] = icmp sge i8 [[E:%.*]], [[F:%.*]]
+; CHECK-NEXT:    [[R:%.*]] = zext i1 [[A]] to i8
 ; CHECK-NEXT:    ret i8 [[R]]
 ;
   %a = icmp slt i8 %e, %f

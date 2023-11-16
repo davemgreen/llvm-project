@@ -1099,37 +1099,78 @@ Value *InstCombinerImpl::SimplifySelectsFeedingBinaryOp(BinaryOperator &I,
 
   // Treat umax(x, y) as select(icmp(ugt, x, y), y, x), if it matches the other
   // predicate in A.
-  auto TryMatchSelectFromMinMax =
-      [&](bool LHSIsSelect, Value *RHS, bool &RHSIsSelect, Value *A, Value *B,
-          Value *C, Value *&D, Value *&E, Value *&F) {
-        if (!LHSIsSelect || RHSIsSelect)
-          return;
+  auto TryMatchSelectFromMinMax = [&](bool LHSIsSelect, Value *RHS,
+                                      bool &RHSIsSelect, Value *A, Value *B,
+                                      Value *C, Value *&D, Value *&E,
+                                      Value *&F) {
+    if (!LHSIsSelect || RHSIsSelect)
+      return;
 
-        Value *X;
+    Value *X, *Y;
+    CmpInst::Predicate Pred;
+    SelectPatternFlavor SPF = getSPFForIntrinsic(RHS);
+    // Check that the RHS is a Min/Max that matches with the icmp in A. This is
+    // apparently valid unless the operands of the cmp are undef, or the
+    // variables B+C and E+F are known not to be equal or are exactly the same
+    // value.
+    if (SPF != SPF_UNKNOWN && match(A, m_ICmp(Pred, m_Value(X), m_Value(Y))) &&
+        match(RHS, m_c_MaxOrMin(m_Specific(X), m_Specific(Y)))) {
+      if (((SPF == SPF_SMIN &&
+            (Pred == ICmpInst::ICMP_SLT || Pred == ICmpInst::ICMP_SLE)) ||
+           (SPF == SPF_SMAX &&
+            (Pred == ICmpInst::ICMP_SGT || Pred == ICmpInst::ICMP_SGE)) ||
+           (SPF == SPF_UMIN &&
+            (Pred == ICmpInst::ICMP_ULT || Pred == ICmpInst::ICMP_ULE)) ||
+           (SPF == SPF_UMAX &&
+            (Pred == ICmpInst::ICMP_UGT || Pred == ICmpInst::ICMP_UGE))) &&
+          (isKnownNonEqual(B, X, DL) || B == X) &&
+          (isKnownNonEqual(C, Y, DL) || C == Y)) {
+        RHSIsSelect = true;
+        E = X;
+        F = Y;
+        D = A;
+        return;
+      }
+      if (((SPF == SPF_SMIN &&
+            (Pred == ICmpInst::ICMP_SGT || Pred == ICmpInst::ICMP_SGE)) ||
+           (SPF == SPF_SMAX &&
+            (Pred == ICmpInst::ICMP_SLT || Pred == ICmpInst::ICMP_SLE)) ||
+           (SPF == SPF_UMIN &&
+            (Pred == ICmpInst::ICMP_UGT || Pred == ICmpInst::ICMP_UGE)) ||
+           (SPF == SPF_UMAX &&
+            (Pred == ICmpInst::ICMP_ULT || Pred == ICmpInst::ICMP_ULE))) &&
+          (isKnownNonEqual(C, X, DL) || C == X) &&
+          (isKnownNonEqual(B, Y, DL) || B == Y)) {
+        RHSIsSelect = true;
+        E = Y;
+        F = X;
+        D = A;
+        return;
+      }
+    }
 
-        // This is a special case for limit extremes - the general pattern
-        // require more careful handling for undef. These use EQ predicates with
-        // a limit value, as opposed to <= or >= predicates, and are apparently
-        // valid so long as the select has known non-equal operands or are the
-        // same Value.
-        CmpInst::Predicate Pred;
-        const APInt *C1, *C2;
-        if (match(RHS, m_MaxOrMin(m_Value(X), m_APInt(C2))) &&
-            match(A, m_c_ICmp(Pred, m_Specific(X), m_APInt(C1))) &&
-            Pred == ICmpInst::ICMP_EQ &&
-            ((C1->isZero() && *C2 == *C1 + 1 &&
-              match(RHS, m_UMax(m_Value(F), m_Value(E)))) ||
-             (C1->isMaxValue() && *C2 == *C1 - 1 &&
-              match(RHS, m_UMin(m_Value(F), m_Value(E)))) ||
-             (C1->isMinSignedValue() && *C2 == *C1 + 1 &&
-              match(RHS, m_SMax(m_Value(F), m_Value(E)))) ||
-             (C1->isMaxSignedValue() && *C2 == *C1 - 1 &&
-              match(RHS, m_SMin(m_Value(F), m_Value(E))))) &&
-            (isKnownNonEqual(B, E, DL) || B == E)) {
-          RHSIsSelect = true;
-          D = A;
-        }
-      };
+    // This is a special case for limit extremes - the general pattern
+    // require more careful handling for undef. These use EQ predicates with
+    // a limit value, as opposed to <= or >= predicates, and are apparently
+    // valid so long as the select has known non-equal operands or are the
+    // same Value.
+    const APInt *C1, *C2;
+    if (match(RHS, m_MaxOrMin(m_Value(X), m_APInt(C2))) &&
+        match(A, m_c_ICmp(Pred, m_Specific(X), m_APInt(C1))) &&
+        Pred == ICmpInst::ICMP_EQ &&
+        ((C1->isZero() && *C2 == *C1 + 1 &&
+          match(RHS, m_UMax(m_Value(F), m_Value(E)))) ||
+         (C1->isMaxValue() && *C2 == *C1 - 1 &&
+          match(RHS, m_UMin(m_Value(F), m_Value(E)))) ||
+         (C1->isMinSignedValue() && *C2 == *C1 + 1 &&
+          match(RHS, m_SMax(m_Value(F), m_Value(E)))) ||
+         (C1->isMaxSignedValue() && *C2 == *C1 - 1 &&
+          match(RHS, m_SMin(m_Value(F), m_Value(E))))) &&
+        (isKnownNonEqual(B, E, DL) || B == E)) {
+      RHSIsSelect = true;
+      D = A;
+    }
+  };
   TryMatchSelectFromMinMax(LHSIsSelect, RHS, RHSIsSelect, A, B, C, D, E, F);
   TryMatchSelectFromMinMax(RHSIsSelect, LHS, LHSIsSelect, D, E, F, A, B, C);
 
