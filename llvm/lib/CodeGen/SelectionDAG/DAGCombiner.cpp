@@ -27833,7 +27833,7 @@ bool DAGCombiner::mayAlias(SDNode *Op0, SDNode *Op1) const {
               LN->getOperand(1),
               (LN->hasOffset()) ? LN->getOffset() : 0,
               (LN->hasOffset())
-                  ? std::optional<TypeSize>(TypeSize::getFixed(LN->getSize()))
+                  ? std::optional<TypeSize>(TypeSize::Fixed(LN->getSize()))
                   : std::optional<TypeSize>(),
               (MachineMemOperand *)nullptr};
     // Default.
@@ -27866,20 +27866,15 @@ bool DAGCombiner::mayAlias(SDNode *Op0, SDNode *Op1) const {
       return false;
   }
 
-  // if NumBytes is scalable and offset is not 0, conservatively return may
+  // If NumBytes is scalable and offset is not 0, conservatively return may
   // alias
-  if ((MUC0.NumBytes && MUC0.NumBytes.value().isScalable() &&
-       (MUC0.Offset != 0)) ||
-      (MUC1.NumBytes && MUC1.NumBytes.value().isScalable() &&
-       (MUC1.Offset != 0)))
+  if ((MUC0.NumBytes && MUC0.NumBytes->isScalable() && MUC0.Offset != 0) ||
+      (MUC1.NumBytes && MUC1.NumBytes->isScalable() && MUC1.Offset != 0))
     return true;
   // Try to prove that there is aliasing, or that there is no aliasing. Either
   // way, we can return now. If nothing can be proved, proceed with more tests.
-  const bool BothNotScalable = !(MUC0.NumBytes.value().isScalable() ||
-                                 MUC1.NumBytes.value().isScalable());
   bool IsAlias;
-  if (BothNotScalable &&
-      BaseIndexOffset::computeAliasing(Op0, MUC0.NumBytes, Op1, MUC1.NumBytes,
+  if (BaseIndexOffset::computeAliasing(Op0, MUC0.NumBytes, Op1, MUC1.NumBytes,
                                        DAG, IsAlias))
     return IsAlias;
 
@@ -27907,20 +27902,18 @@ bool DAGCombiner::mayAlias(SDNode *Op0, SDNode *Op1) const {
   auto &Size0 = MUC0.NumBytes;
   auto &Size1 = MUC1.NumBytes;
 
-  if (BothNotScalable) {
-    if (OrigAlignment0 == OrigAlignment1 && SrcValOffset0 != SrcValOffset1 &&
-        Size0.has_value() && Size1.has_value() && *Size0 == *Size1 &&
-        OrigAlignment0 > *Size0 && SrcValOffset0 % *Size0 == 0 &&
-        SrcValOffset1 % *Size1 == 0) {
-      int64_t OffAlign0 = SrcValOffset0 % OrigAlignment0.value();
-      int64_t OffAlign1 = SrcValOffset1 % OrigAlignment1.value();
+  if (OrigAlignment0 == OrigAlignment1 && SrcValOffset0 != SrcValOffset1 &&
+      Size0.has_value() && Size1.has_value() && !Size0->isScalable() &&
+      !Size1->isScalable() && *Size0 == *Size1 && OrigAlignment0 > *Size0 &&
+      SrcValOffset0 % *Size0 == 0 && SrcValOffset1 % *Size1 == 0) {
+    int64_t OffAlign0 = SrcValOffset0 % OrigAlignment0.value();
+    int64_t OffAlign1 = SrcValOffset1 % OrigAlignment1.value();
 
-      // There is no overlap between these relatively aligned accesses of
-      // similar size. Return no alias.
-      if ((OffAlign0 + *Size0) <= OffAlign1 ||
-          (OffAlign1 + *Size1) <= OffAlign0)
-        return false;
-    }
+    // There is no overlap between these relatively aligned accesses of
+    // similar size. Return no alias.
+    if ((OffAlign0 + static_cast<int64_t>(*Size0)) <= OffAlign1 ||
+        (OffAlign1 + static_cast<int64_t>(*Size1)) <= OffAlign0)
+      return false;
   }
 
   bool UseAA = CombinerGlobalAA.getNumOccurrences() > 0
@@ -27936,14 +27929,12 @@ bool DAGCombiner::mayAlias(SDNode *Op0, SDNode *Op1) const {
       Size1) {
     // Use alias analysis information.
     int64_t MinOffset = std::min(SrcValOffset0, SrcValOffset1);
-    int64_t Overlap0 =
-        Size0.value().getKnownMinValue() + SrcValOffset0 - MinOffset;
-    int64_t Overlap1 =
-        Size1.value().getKnownMinValue() + SrcValOffset1 - MinOffset;
-    LocationSize Loc0 = Size0.value().isScalable()
+    int64_t Overlap0 = Size0->getKnownMinValue() + SrcValOffset0 - MinOffset;
+    int64_t Overlap1 = Size1->getKnownMinValue() + SrcValOffset1 - MinOffset;
+    LocationSize Loc0 = Size0->isScalable()
                             ? LocationSize::precise(Size0.value())
                             : LocationSize::precise(Overlap0);
-    LocationSize Loc1 = Size1.value().isScalable()
+    LocationSize Loc1 = Size1->isScalable()
                             ? LocationSize::precise(Size1.value())
                             : LocationSize::precise(Overlap1);
     if (AA->isNoAlias(

@@ -11773,9 +11773,9 @@ MemSDNode::MemSDNode(unsigned Opc, unsigned Order, const DebugLoc &dl,
   // We check here that the size of the memory operand fits within the size of
   // the MMO. This is because the MMO might indicate only a possible address
   // range instead of specifying the affected memory addresses precisely.
-  if (MMO->getType().isValid())
-    assert(TypeSize::isKnownLE(memvt.getStoreSize(), MMO->getSize()) &&
-           "Size mismatch!");
+  assert((!MMO->getType().isValid() ||
+          TypeSize::isKnownLE(memvt.getStoreSize(), MMO->getSize())) &&
+         "Size mismatch!");
 }
 
 /// Profile - Gather unique data for the node.

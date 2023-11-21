@@ -1346,10 +1346,9 @@ static bool MemOperandsHaveAlias(const MachineFrameInfo &MFI, AAResults *AA,
 
   // If Scalable Location Size has non-zero offset,
   // Width + Offset does not work at the moment
-  if ((WidthA.isScalable() && (OffsetA > 0)) ||
-      (WidthB.isScalable() && (OffsetB > 0))) {
+  if ((WidthA.isScalable() && OffsetA > 0) ||
+      (WidthB.isScalable() && OffsetB > 0))
     return true;
-  }
 
   int64_t OverlapA = KnownWidthA
                          ? WidthA.getKnownMinValue() + OffsetA - MinOffset

@@ -1033,8 +1033,8 @@ public:
       AtomicOrdering FailureOrdering = AtomicOrdering::NotAtomic);
 
   MachineMemOperand *getMachineMemOperand(
-      MachinePointerInfo PtrInfo, MachineMemOperand::Flags f, TypeSize ts,
-      Align base_alignment, const AAMDNodes &AAInfo = AAMDNodes(),
+      MachinePointerInfo PtrInfo, MachineMemOperand::Flags F, TypeSize TS,
+      Align BaseAlignment, const AAMDNodes &AAInfo = AAMDNodes(),
       const MDNode *Ranges = nullptr, SyncScope::ID SSID = SyncScope::System,
       AtomicOrdering Ordering = AtomicOrdering::NotAtomic,
       AtomicOrdering FailureOrdering = AtomicOrdering::NotAtomic);
@@ -1059,14 +1059,12 @@ public:
   }
 
   MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
-                                          int64_t Offset, TypeSize ts) {
+                                          int64_t Offset, TypeSize TS) {
     return getMachineMemOperand(
         MMO, Offset,
-        ts.getKnownMinValue() == ~UINT64_C(0)
-            ? LLT()
-            : ts.isScalable()
-                  ? LLT::scalable_vector(1, 8 * ts.getKnownMinValue())
-                  : LLT::scalar(8 * ts.getKnownMinValue()));
+        TS.getKnownMinValue() == ~UINT64_C(0) ? LLT()
+        : TS.isScalable() ? LLT::scalable_vector(1, 8 * TS.getKnownMinValue())
+                          : LLT::scalar(8 * TS.getKnownMinValue()));
   }
 
   /// getMachineMemOperand - Allocate a new MachineMemOperand by copying
@@ -1078,7 +1076,7 @@ public:
                                           uint64_t Size);
   MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
                                           const MachinePointerInfo &PtrInfo,
-                                          TypeSize ts);
+                                          TypeSize TS);
   MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
                                           const MachinePointerInfo &PtrInfo,
                                           LLT Ty);

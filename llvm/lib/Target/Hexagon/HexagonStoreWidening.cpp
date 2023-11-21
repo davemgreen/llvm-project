@@ -172,14 +172,16 @@ bool HexagonStoreWidening::instrAliased(InstrGroup &Stores,
   if (!MMO.getValue())
     return true;
 
-  MemoryLocation L(MMO.getValue(), MMO.getSize(), MMO.getAAInfo());
+  MemoryLocation L(MMO.getValue(), MMO.getSize().getFixedValue(),
+                   MMO.getAAInfo());
 
   for (auto *SI : Stores) {
     const MachineMemOperand &SMO = getStoreTarget(SI);
     if (!SMO.getValue())
       return true;
 
-    MemoryLocation SL(SMO.getValue(), SMO.getSize(), SMO.getAAInfo());
+    MemoryLocation SL(SMO.getValue(), SMO.getSize().getFixedValue(),
+                      SMO.getAAInfo());
     if (!AA->isNoAlias(L, SL))
       return true;
   }

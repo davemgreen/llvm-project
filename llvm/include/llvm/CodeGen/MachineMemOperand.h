@@ -190,7 +190,7 @@ public:
                     SyncScope::ID SSID = SyncScope::System,
                     AtomicOrdering Ordering = AtomicOrdering::NotAtomic,
                     AtomicOrdering FailureOrdering = AtomicOrdering::NotAtomic);
-  MachineMemOperand(MachinePointerInfo PtrInfo, Flags flags, TypeSize ts,
+  MachineMemOperand(MachinePointerInfo PtrInfo, Flags flags, TypeSize TS,
                     Align a, const AAMDNodes &AAInfo = AAMDNodes(),
                     const MDNode *Ranges = nullptr,
                     SyncScope::ID SSID = SyncScope::System,

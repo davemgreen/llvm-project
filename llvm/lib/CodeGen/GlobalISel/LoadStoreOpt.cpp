@@ -220,7 +220,7 @@ bool GISelAddressing::instMayAlias(const MachineInstr &MI,
     // Default.
     return {false /*isvolatile*/,
             /*isAtomic*/ false,          Register(),
-            (int64_t)0 /*offset*/,       TypeSize::getFixed(0) /*size*/,
+            (int64_t)0 /*offset*/,       TypeSize::Fixed(0) /*size*/,
             (MachineMemOperand *)nullptr};
   };
   MemUseCharacteristics MUC0 = getCharacteristics(&MI),
@@ -248,7 +248,7 @@ bool GISelAddressing::instMayAlias(const MachineInstr &MI,
       return false;
   }
 
-  // if NumBytes is scalable and offset is not 0, conservatively return may
+  // If NumBytes is scalable and offset is not 0, conservatively return may
   // alias
   if ((MUC0.NumBytes.isScalable() && (MUC0.Offset != 0)) ||
       (MUC1.NumBytes.isScalable() && (MUC1.Offset != 0)))

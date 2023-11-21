@@ -1097,20 +1097,18 @@ MachineMemOperand::MachineMemOperand(MachinePointerInfo ptrinfo, Flags f,
                         s == ~UINT64_C(0) ? LLT() : LLT::scalar(8 * s), a,
                         AAInfo, Ranges, SSID, Ordering, FailureOrdering) {}
 
-MachineMemOperand::MachineMemOperand(MachinePointerInfo ptrinfo, Flags f,
-                                     TypeSize ts, Align a,
+MachineMemOperand::MachineMemOperand(MachinePointerInfo ptrinfo, Flags F,
+                                     TypeSize TS, Align BaseAlignment,
                                      const AAMDNodes &AAInfo,
                                      const MDNode *Ranges, SyncScope::ID SSID,
                                      AtomicOrdering Ordering,
                                      AtomicOrdering FailureOrdering)
     : MachineMemOperand(
-          ptrinfo, f,
-          ts.getKnownMinValue() == ~UINT64_C(0)
-              ? LLT()
-              : ts.isScalable()
-                    ? LLT::scalable_vector(1, 8 * ts.getKnownMinValue())
-                    : LLT::scalar(8 * ts.getKnownMinValue()),
-          a, AAInfo, Ranges, SSID, Ordering, FailureOrdering) {}
+          ptrinfo, F,
+          TS.getKnownMinValue() == ~UINT64_C(0) ? LLT()
+          : TS.isScalable() ? LLT::scalable_vector(1, 8 * TS.getKnownMinValue())
+                            : LLT::scalar(8 * TS.getKnownMinValue()),
+          BaseAlignment, AAInfo, Ranges, SSID, Ordering, FailureOrdering) {}
 
 void MachineMemOperand::refineAlignment(const MachineMemOperand *MMO) {
   // The Value and Offset may differ due to CSE. But the flags and size

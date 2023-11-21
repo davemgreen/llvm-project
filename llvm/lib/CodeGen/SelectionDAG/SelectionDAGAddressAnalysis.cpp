@@ -85,11 +85,10 @@ bool BaseIndexOffset::equalBaseIndex(const BaseIndexOffset &Other,
 }
 
 bool BaseIndexOffset::computeAliasing(const SDNode *Op0,
-                                      const std::optional<int64_t> NumBytes0,
+                                      const std::optional<TypeSize> NumBytes0,
                                       const SDNode *Op1,
-                                      const std::optional<int64_t> NumBytes1,
+                                      const std::optional<TypeSize> NumBytes1,
                                       const SelectionDAG &DAG, bool &IsAlias) {
-
   BaseIndexOffset BasePtr0 = match(Op0, DAG);
   BaseIndexOffset BasePtr1 = match(Op1, DAG);
 
@@ -103,20 +102,20 @@ bool BaseIndexOffset::computeAliasing(const SDNode *Op0,
     // vector objects on the stack.
     // BasePtr1 is PtrDiff away from BasePtr0. They alias if none of the
     // following situations arise:
-    if (PtrDiff >= 0 &&
-        *NumBytes0 != static_cast<int64_t>(MemoryLocation::UnknownSize)) {
+    if (PtrDiff >= 0 && !NumBytes0->isScalable() &&
+        NumBytes0->getFixedValue() != MemoryLocation::UnknownSize) {
       // [----BasePtr0----]
       //                         [---BasePtr1--]
       // ========PtrDiff========>
-      IsAlias = !(*NumBytes0 <= PtrDiff);
+      IsAlias = !((int64_t)NumBytes0->getFixedValue() <= PtrDiff);
       return true;
     }
-    if (PtrDiff < 0 &&
-        *NumBytes1 != static_cast<int64_t>(MemoryLocation::UnknownSize)) {
+    if (PtrDiff < 0 && !NumBytes1->isScalable() &&
+        NumBytes1->getFixedValue() != MemoryLocation::UnknownSize) {
       //                     [----BasePtr0----]
       // [---BasePtr1--]
       // =====(-PtrDiff)====>
-      IsAlias = !((PtrDiff + *NumBytes1) <= 0);
+      IsAlias = !((PtrDiff + (int64_t)NumBytes1->getFixedValue()) <= 0);
       return true;
     }
     return false;

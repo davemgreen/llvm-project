@@ -492,12 +492,12 @@ MachineMemOperand *MachineFunction::getMachineMemOperand(
 }
 
 MachineMemOperand *MachineFunction::getMachineMemOperand(
-    MachinePointerInfo PtrInfo, MachineMemOperand::Flags f, TypeSize ts,
-    Align base_alignment, const AAMDNodes &AAInfo, const MDNode *Ranges,
+    MachinePointerInfo PtrInfo, MachineMemOperand::Flags F, TypeSize TS,
+    Align BaseAlignment, const AAMDNodes &AAInfo, const MDNode *Ranges,
     SyncScope::ID SSID, AtomicOrdering Ordering,
     AtomicOrdering FailureOrdering) {
   return new (Allocator)
-      MachineMemOperand(PtrInfo, f, ts, base_alignment, AAInfo, Ranges, SSID,
+      MachineMemOperand(PtrInfo, F, TS, BaseAlignment, AAInfo, Ranges, SSID,
                         Ordering, FailureOrdering);
 }
 
@@ -522,9 +522,9 @@ MachineMemOperand *MachineFunction::getMachineMemOperand(
 MachineMemOperand *
 MachineFunction::getMachineMemOperand(const MachineMemOperand *MMO,
                                       const MachinePointerInfo &PtrInfo,
-                                      TypeSize ts) {
+                                      TypeSize TS) {
   return new (Allocator)
-      MachineMemOperand(PtrInfo, MMO->getFlags(), ts, MMO->getBaseAlign(),
+      MachineMemOperand(PtrInfo, MMO->getFlags(), TS, MMO->getBaseAlign(),
                         AAMDNodes(), nullptr, MMO->getSyncScopeID(),
                         MMO->getSuccessOrdering(), MMO->getFailureOrdering());
 }
