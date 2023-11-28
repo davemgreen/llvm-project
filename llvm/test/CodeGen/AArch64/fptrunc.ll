@@ -109,11 +109,11 @@ entry:
 define <3 x half> @fptrunc_v3f64_v3f16(<3 x double> %a) {
 ; CHECK-SD-LABEL: fptrunc_v3f64_v3f16:
 ; CHECK-SD:       // %bb.0: // %entry
-; CHECK-SD-NEXT:    fcvt h1, d1
 ; CHECK-SD-NEXT:    fcvt h0, d0
+; CHECK-SD-NEXT:    fcvt h1, d1
+; CHECK-SD-NEXT:    fcvt h2, d2
 ; CHECK-SD-NEXT:    mov v0.h[1], v1.h[0]
-; CHECK-SD-NEXT:    fcvt h1, d2
-; CHECK-SD-NEXT:    mov v0.h[2], v1.h[0]
+; CHECK-SD-NEXT:    mov v0.h[2], v2.h[0]
 ; CHECK-SD-NEXT:    // kill: def $d0 killed $d0 killed $q0
 ; CHECK-SD-NEXT:    ret
 ;

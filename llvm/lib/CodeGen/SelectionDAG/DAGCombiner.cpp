@@ -22221,7 +22221,9 @@ SDValue DAGCombiner::visitEXTRACT_VECTOR_ELT(SDNode *N) {
     EVT InEltVT = Elt.getValueType();
 
     if (VecOp.hasOneUse() || TLI.aggressivelyPreferBuildVectorSources(VecVT) ||
-        isNullConstant(Elt)) {
+        isNullConstant(Elt) || all_of(VecOp->uses(), [&](SDNode *U) {
+          return U->getOpcode() == ISD::EXTRACT_VECTOR_ELT;
+        })) {
       // Sometimes build_vector's scalar input types do not match result type.
       if (ScalarVT == InEltVT)
         return Elt;

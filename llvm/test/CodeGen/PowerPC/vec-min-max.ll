@@ -272,14 +272,6 @@ define i128 @invalidv1i128(<2 x i128> %v1, <2 x i128> %v2) {
 ; NOP8VEC-NEXT:    cror 20, 21, 20
 ; NOP8VEC-NEXT:    isel 3, 3, 7, 20
 ; NOP8VEC-NEXT:    isel 4, 4, 8, 20
-; NOP8VEC-NEXT:    std 3, -32(1)
-; NOP8VEC-NEXT:    addi 3, 1, -32
-; NOP8VEC-NEXT:    std 4, -24(1)
-; NOP8VEC-NEXT:    lxvd2x 0, 0, 3
-; NOP8VEC-NEXT:    addi 3, 1, -16
-; NOP8VEC-NEXT:    stxvd2x 0, 0, 3
-; NOP8VEC-NEXT:    ld 3, -16(1)
-; NOP8VEC-NEXT:    ld 4, -8(1)
 ; NOP8VEC-NEXT:    blr
 %1 = icmp slt <2 x i128> %v1, %v2
 %2 = select <2 x i1> %1, <2 x i128> %v1, <2 x i128> %v2
