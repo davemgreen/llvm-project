@@ -72,12 +72,16 @@
 #include "AArch64ExpandImm.h"
 #include "AArch64InstrInfo.h"
 #include "MCTargetDesc/AArch64AddressingModes.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
+#include "llvm/IR/InstIterator.h"
 
 using namespace llvm;
 
 #define DEBUG_TYPE "aarch64-mi-peephole-opt"
+
+static cl::opt<int> PatternGenPatternDepth("", cl::init(0), cl::Hidden);
 
 namespace {
 
@@ -835,6 +839,119 @@ bool AArch64MIPeepholeOpt::visitCopy(MachineInstr &MI) {
   return true;
 }
 
+static int
+getPermutations(MachineInstr &MI, int Depth,
+                DenseMap<MachineInstr *, MachineInstr *> &LastNZCVMap,
+                MachineRegisterInfo *MRI, const AArch64InstrInfo *TII) {
+  if (Depth == 0)
+    return 0;
+
+  unsigned Opc = MI.getOpcode();
+  const MCInstrDesc &MII = TII->get(Opc);
+  if (MII.isVariadic() || MII.hasOptionalDef() /* || MII.isPseudo()*/)
+    return 0;
+  if (Opc == AArch64::MOVi32imm || Opc == AArch64::MOVi64imm)
+    return 1;
+  if (Opc <= TargetOpcode::GENERIC_OP_END)
+    return 0;
+
+  int Perms = 1;
+  for (unsigned I = 0; I < MI.getNumOperands(); I++) {
+    const MachineOperand &MO = MI.getOperand(I);
+    if (MO.isReg() && MO.isDef())
+      continue;
+
+    if (MO.isReg()) {
+      if (MO.getReg().isPhysical()) {
+        if (MO.getReg() == AArch64::NZCV) {
+          if (!LastNZCVMap.count(&MI) && !LastNZCVMap[&MI])
+            Perms += getPermutations(*LastNZCVMap[&MI], Depth - 1, LastNZCVMap,
+                                     MRI, TII);
+        } else if (MO.getReg() == AArch64::WZR || MO.getReg() == AArch64::XZR)
+          Perms += 1;
+      } else {
+        MachineInstr *DMI = MRI->getVRegDef(MO.getReg());
+        if (DMI)
+          Perms += getPermutations(
+              *DMI, (Depth != 1 && MRI->hasOneUse(MO.getReg())) ? 1 : Depth - 1,
+              LastNZCVMap, MRI, TII);
+      }
+    }
+  }
+  return Perms;
+}
+
+static bool MakePattern(raw_ostream &str, MachineInstr &MI, uint64_t &Perm,
+                        int Depth, DenseMap<Register, unsigned> &VRegs,
+                        DenseMap<MachineInstr *, MachineInstr *> &LastNZCVMap,
+                        MachineRegisterInfo *MRI, const AArch64InstrInfo *TII) {
+  if (Depth == 0)
+    return false;
+  unsigned Opc = MI.getOpcode();
+  const MCInstrDesc &MII = TII->get(Opc);
+  if (MII.isVariadic() || MII.hasOptionalDef() /* || MII.isPseudo()*/)
+    return false;
+  if (Opc == AArch64::MOVi32imm || Opc == AArch64::MOVi64imm) {
+    bool DoIt = (Perm & 1) == 1;
+    Perm >>= 1;
+    if (DoIt)
+      str << "im:" << MI.getOperand(1).getImm();
+    return DoIt;
+  }
+  // TODO: Is this useful? Can we handle other generics (INSERT_SUBREG)?
+  // if (Opc == AArch64::COPY && MI.getOperand(1).getReg().isVirtual())
+  //  return MakePattern(str, *MRI->getVRegDef(MI.getOperand(1).getReg()),
+  //  Depth, VRegs);
+  if (Opc <= TargetOpcode::GENERIC_OP_END)
+    return false;
+
+  str << TII->getName(Opc) << " ";
+  for (unsigned I = 0; I < MI.getNumOperands(); I++) {
+    const MachineOperand &MO = MI.getOperand(I);
+    if (MO.isReg() && MO.isDef())
+      continue;
+
+    str << "(";
+    if (MO.isReg()) {
+      if (MO.getReg().isPhysical()) {
+        if (MO.getReg() == AArch64::NZCV) {
+          bool DoIt = (Perm & 1) == 1;
+          Perm >>= 1;
+          if (!DoIt || !LastNZCVMap.count(&MI) || !LastNZCVMap[&MI] ||
+              !MakePattern(str, *LastNZCVMap[&MI], Perm >>= 1, Depth - 1, VRegs,
+                           LastNZCVMap, MRI, TII))
+            str << "pr:nzcv";
+        } else if (MO.getReg() == AArch64::WZR || MO.getReg() == AArch64::XZR)
+          str << "im:0";
+        else
+          str << "pr:" << MO;
+      } else {
+        MachineInstr *DMI = MRI->getVRegDef(MO.getReg());
+        bool DoIt = (Perm & 1) == 1;
+        Perm >>= 1;
+        uint64_t Zero;
+        if (!DoIt || !DMI ||
+            !MakePattern(str, *DMI, MRI->hasOneUse(MO.getReg()) ? Zero : Perm,
+                         Depth - 1, VRegs, LastNZCVMap, MRI, TII)) {
+          if (VRegs.count(MO.getReg()) == 0) {
+            int s = VRegs.size();
+            VRegs[MO.getReg()] = s;
+          }
+          str << "vr:" << VRegs[MO.getReg()];
+        }
+      }
+    } else if (MO.isImm()) {
+      str << "im:" << MO.getImm();
+    } else if (MO.isMBB()) {
+      str << "mbb";
+    } else {
+      str << "Operand";
+    }
+    str << ") ";
+  }
+  return true;
+}
+
 bool AArch64MIPeepholeOpt::runOnMachineFunction(MachineFunction &MF) {
   if (skipFunction(MF.getFunction()))
     return false;
@@ -929,6 +1046,103 @@ bool AArch64MIPeepholeOpt::runOnMachineFunction(MachineFunction &MF) {
       }
     }
   }
+
+#if 0
+  // Print all constants in the ir
+  auto &F = MF.getFunction();
+  for (auto &MI : instructions(F)) {
+    for(auto &Op : MI.operands())
+      if (auto *C = dyn_cast<ConstantInt>(Op))
+        LLVM_DEBUG(dbgs() << *C << "\n");
+  }
+#elif 0
+  // Print all the MOVi32/i64 constants
+  for (auto &BB : MF) {
+    for (auto &MI : BB) {
+      if (MI.getOpcode() == AArch64::MOVi32imm ||
+          MI.getOpcode() == AArch64::MOVi64imm)
+        MI.dump();
+    }
+  }
+#elif 0
+  // Print all the mir instruction names
+  for (auto &BB : MF) {
+    for (auto &MI : BB) {
+      LLVM_DEBUG(dbgs() << "INST: " << TII->getName(MI.getOpcode()) << "\n");
+    }
+  }
+#else
+  // Print all the mir patterns found
+  if (PatternGenPatternDepth > 0) {
+    DenseMap<MachineInstr *, MachineInstr *> LastNZCVMap;
+    for (auto &BB : MF) {
+      MachineInstr *LastNZCV = nullptr;
+      for (auto &MI : BB) {
+        switch (MI.getOpcode()) {
+        default: {
+          unsigned Opc = MI.getOpcode();
+          const MCInstrDesc &MII = TII->get(Opc);
+          if (Opc <= TargetOpcode::GENERIC_OP_END ||
+              Opc == AArch64::ADJCALLSTACKUP ||
+              Opc == AArch64::ADJCALLSTACKDOWN) {
+            LLVM_DEBUG(dbgs() << "PSEUDO: " << TII->getName(Opc) << "\n");
+            break;
+          }
+          if (MII.isVariadic() || MII.hasOptionalDef()) {
+            dbgs() << "UNSUPPORTED: " << TII->getName(Opc) << "\n";
+            break;
+          }
+
+          if (MI.readsRegister(AArch64::NZCV, MRI->getTargetRegisterInfo())) {
+            if (!LastNZCV)
+              LLVM_DEBUG(dbgs() << "Unknown last NZCV\n");
+            LastNZCVMap[&MI] = LastNZCV;
+          }
+
+          int Perms = getPermutations(MI, PatternGenPatternDepth, LastNZCVMap,
+                                      MRI, TII);
+          // dbgs() << "MI: " << MI;
+          // dbgs() << "  Perms: " << Perms << "\n";
+          //  FIXME: this isnt very good
+          assert(Perms <= 32);
+          StringSet<> Strs;
+          for (uint64_t d = 1; d < (1ULL << Perms); d++) {
+            std::string str;
+            raw_string_ostream sstr(str);
+            DenseMap<Register, unsigned> VRegs;
+
+            bool DefsReg =
+                MI.getNumOperands() > 0 && MI.getOperand(0).isReg() &&
+                MI.getOperand(0).isDef() && !MI.getOperand(0).isDead() &&
+                MI.getOperand(0).getReg() != AArch64::WZR &&
+                MI.getOperand(0).getReg() != AArch64::XZR &&
+                !MRI->use_empty(MI.getOperand(0).getReg());
+            bool DefsNZCV =
+                MI.definesRegister(AArch64::NZCV, MRI->getTargetRegisterInfo());
+            if (DefsReg && DefsNZCV)
+              sstr << "vrfl:";
+            else if (DefsReg)
+              sstr << "vr:";
+            else if (DefsNZCV)
+              sstr << "fl:";
+
+            uint64_t D = d;
+            MakePattern(sstr, MI, D, PatternGenPatternDepth, VRegs, LastNZCVMap,
+                        MRI, TII);
+            Strs.insert(sstr.str());
+          }
+          for (auto &S : Strs)
+            LLVM_DEBUG(dbgs() << "PATTERN: " << MF.getName() << " " << S.first()
+                              << "\n");
+        }
+        }
+
+        if (MI.definesRegister(AArch64::NZCV, MRI->getTargetRegisterInfo()))
+          LastNZCV = &MI;
+      }
+    }
+  }
+#endif
 
   return Changed;
 }
