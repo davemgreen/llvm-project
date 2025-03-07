@@ -3895,7 +3895,6 @@ InstructionCost AArch64TTIImpl::getArithmeticInstrCost(
     // So, for a v2i64 with LT.First = 1 the cost is 14, and for a v4i64 with
     // LT.first = 2 the cost is 28. If both operands are extensions it will not
     // need to scalarize so the cost can be cheaper (smull or umull).
-    // so the cost can be cheaper (smull or umull).
     if (LT.second != MVT::v2i64 || isWideningInstruction(Ty, Opcode, Args))
       return LT.first;
     return cast<VectorType>(Ty)->getElementCount().getKnownMinValue() *
@@ -3931,8 +3930,15 @@ InstructionCost AArch64TTIImpl::getArithmeticInstrCost(
     // Increase the cost for half and bfloat types if not architecturally
     // supported.
     if ((Ty->getScalarType()->isHalfTy() && !ST->hasFullFP16()) ||
-        (Ty->getScalarType()->isBFloatTy() && !ST->hasBF16()))
-      return 2 * LT.first;
+        (Ty->getScalarType()->isBFloatTy() && !ST->hasBF16())) {
+      Type *F32Ty = Ty->getWithNewType(Type::getFloatTy(Ty->getContext()));
+      return getCastInstrCost(Instruction::FPExt, F32Ty, Ty,
+                              TTI::CastContextHint::None, CostKind) *
+                 2 +
+             getArithmeticInstrCost(Opcode, F32Ty, CostKind, Op1Info, Op2Info) +
+             getCastInstrCost(Instruction::FPTrunc, Ty, F32Ty,
+                              TTI::CastContextHint::None, CostKind);
+    }
     if (!Ty->getScalarType()->isFP128Ty())
       return LT.first;
     [[fallthrough]];
