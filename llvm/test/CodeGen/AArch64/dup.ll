@@ -71,12 +71,24 @@ entry:
 }
 
 define <2 x i8> @loaddup_str_v2i8(ptr %p) {
-; CHECK-LABEL: loaddup_str_v2i8:
-; CHECK:       // %bb.0: // %entry
-; CHECK-NEXT:    ldrb w8, [x0]
-; CHECK-NEXT:    strb wzr, [x0]
-; CHECK-NEXT:    dup v0.2s, w8
-; CHECK-NEXT:    ret
+; CHECK-SD-LABEL: loaddup_str_v2i8:
+; CHECK-SD:       // %bb.0: // %entry
+; CHECK-SD-NEXT:    ldrb w8, [x0]
+; CHECK-SD-NEXT:    strb wzr, [x0]
+; CHECK-SD-NEXT:    dup v0.2s, w8
+; CHECK-SD-NEXT:    ret
+;
+; CHECK-GI-LABEL: loaddup_str_v2i8:
+; CHECK-GI:       // %bb.0: // %entry
+; CHECK-GI-NEXT:    ldr b0, [x0]
+; CHECK-GI-NEXT:    strb wzr, [x0]
+; CHECK-GI-NEXT:    dup v0.8b, v0.b[0]
+; CHECK-GI-NEXT:    umov w8, v0.b[0]
+; CHECK-GI-NEXT:    umov w9, v0.b[1]
+; CHECK-GI-NEXT:    fmov s0, w8
+; CHECK-GI-NEXT:    mov v0.s[1], w9
+; CHECK-GI-NEXT:    // kill: def $d0 killed $d0 killed $q0
+; CHECK-GI-NEXT:    ret
 entry:
   %a = load i8, ptr %p
   %b = insertelement <2 x i8> poison, i8 %a, i64 0
