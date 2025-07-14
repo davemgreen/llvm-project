@@ -3341,29 +3341,28 @@ bool IRTranslator::translateShuffleVector(const User &U,
   if (DstElts == 1) {
     unsigned M = Mask[0];
     if (SrcElts == 1) {
-      if (M == 0 || M == 1) {
+      if (M == 0 || M == 1)
         return translateCopy(U, *U.getOperand(M), MIRBuilder);
-      }
       MIRBuilder.buildUndef(getOrCreateVReg(U));
-      return true;
     } else {
+      Register Dst = getOrCreateVReg(U);
       if (M < SrcElts) {
         MIRBuilder.buildExtractVectorElementConstant(
-            getOrCreateVReg(U), getOrCreateVReg(*U.getOperand(0)), M);
+            Dst, getOrCreateVReg(*U.getOperand(0)), M);
       } else if (M < SrcElts * 2) {
         MIRBuilder.buildExtractVectorElementConstant(
-            getOrCreateVReg(U), getOrCreateVReg(*U.getOperand(1)), M - SrcElts);
+            Dst, getOrCreateVReg(*U.getOperand(1)), M - SrcElts);
       } else {
-        MIRBuilder.buildUndef(getOrCreateVReg(U));
+        MIRBuilder.buildUndef(Dst);
       }
-      return true;
     }
+    return true;
   }
 
   // A single element src is transformed to a build_vector.
   if (SrcElts == 1) {
     SmallVector<Register> Ops;
-    Register Undef = 0;
+    Register Undef;
     for (int M : Mask) {
       LLT SrcTy = getLLTForType(*U.getOperand(0)->getType(), *DL);
       if (M == 0 || M == 1) {
