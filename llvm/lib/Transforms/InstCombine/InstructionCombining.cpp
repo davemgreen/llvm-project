@@ -3415,6 +3415,13 @@ Instruction *InstCombinerImpl::visitGetElementPtrInst(GetElementPtrInst &GEP) {
     return &GEP;
   }
 
+  // Canonicalize gep [n x i32], %p, 0, %x -> gep i32, %p, %x
+  if (GEPEltType->isArrayTy() && match(Indices[0], m_Zero())) {
+    return GetElementPtrInst::Create(GEPEltType->getArrayElementType(),
+                                     GEP.getPointerOperand(),
+                                     drop_begin(Indices), GEP.getNoWrapFlags());
+  }
+
   // These rewrites are trying to preserve inbounds/nuw attributes. So we want
   // to do this after having tried to derive "nuw" above.
   if (GEP.getNumIndices() == 1) {

@@ -8,7 +8,7 @@ target triple = "aarch64-unknown-linux-android10000"
 
 define i32 @f(i64 %i) {
 entry:
-  ; CHECK: getelementptr inbounds [3 x i32], ptr @x
+  ; CHECK: getelementptr inbounds i32, ptr @x, i64 %i
   %arrayidx = getelementptr inbounds [3 x i32], ptr @x, i64 0, i64 %i
   %0 = load i32, ptr %arrayidx
   ret i32 %0

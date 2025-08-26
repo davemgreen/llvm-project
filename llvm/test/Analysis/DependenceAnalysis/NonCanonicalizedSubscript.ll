@@ -27,8 +27,8 @@ entry:
 
 for.body:
   %i = phi i64 [ 0, %entry ], [ %i.inc, %for.body ]
-  %a.addr = getelementptr [100 x [100 x i32]], ptr %a, i64 0, i64 %i, i64 %i
-  %a.addr.2 = getelementptr [100 x [100 x i32]], ptr %a, i64 0, i64 %i, i32 5
+  %a.addr = getelementptr [100 x i32], ptr %a, i64 %i, i64 %i
+  %a.addr.2 = getelementptr [100 x i32], ptr %a, i64 %i, i32 5
   %0 = load i32, ptr %a.addr, align 4
   %1 = add i32 %0, 1
   store i32 %1, ptr %a.addr.2, align 4
