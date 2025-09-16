@@ -796,10 +796,9 @@ define i32 @ctpop_into_extract(ptr %p) {
 ;
 ; NEON-LABEL: ctpop_into_extract:
 ; NEON:       // %bb.0:
-; NEON-NEXT:    ldr w9, [x0]
+; NEON-NEXT:    ldr s0, [x0]
 ; NEON-NEXT:    movi v1.2d, #0xffffffffffffffff
 ; NEON-NEXT:    mov x8, x0
-; NEON-NEXT:    fmov d0, x9
 ; NEON-NEXT:    cnt v0.8b, v0.8b
 ; NEON-NEXT:    addv b0, v0.8b
 ; NEON-NEXT:    mov v1.s[1], v0.s[0]
@@ -811,10 +810,9 @@ define i32 @ctpop_into_extract(ptr %p) {
 ;
 ; DOT-LABEL: ctpop_into_extract:
 ; DOT:       // %bb.0:
-; DOT-NEXT:    ldr w9, [x0]
+; DOT-NEXT:    ldr s0, [x0]
 ; DOT-NEXT:    movi v1.2d, #0xffffffffffffffff
 ; DOT-NEXT:    mov x8, x0
-; DOT-NEXT:    fmov d0, x9
 ; DOT-NEXT:    cnt v0.8b, v0.8b
 ; DOT-NEXT:    addv b0, v0.8b
 ; DOT-NEXT:    mov v1.s[1], v0.s[0]
