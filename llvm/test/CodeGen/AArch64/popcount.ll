@@ -796,31 +796,31 @@ define i32 @ctpop_into_extract(ptr %p) {
 ;
 ; NEON-LABEL: ctpop_into_extract:
 ; NEON:       // %bb.0:
-; NEON-NEXT:    ldr d0, [x0]
-; NEON-NEXT:    movi v2.2d, #0xffffffffffffffff
+; NEON-NEXT:    ldr w9, [x0]
+; NEON-NEXT:    movi v1.2d, #0xffffffffffffffff
 ; NEON-NEXT:    mov x8, x0
+; NEON-NEXT:    fmov d0, x9
+; NEON-NEXT:    cnt v0.8b, v0.8b
+; NEON-NEXT:    addv b0, v0.8b
+; NEON-NEXT:    mov v1.s[1], v0.s[0]
+; NEON-NEXT:    ldr d0, [x0]
 ; NEON-NEXT:    mov w0, wzr
-; NEON-NEXT:    fmov w9, s0
-; NEON-NEXT:    fmov s1, w9
-; NEON-NEXT:    cnt v1.8b, v1.8b
-; NEON-NEXT:    addv b1, v1.8b
-; NEON-NEXT:    mov v2.s[1], v1.s[0]
-; NEON-NEXT:    sub v0.2s, v0.2s, v2.2s
+; NEON-NEXT:    sub v0.2s, v0.2s, v1.2s
 ; NEON-NEXT:    str d0, [x8]
 ; NEON-NEXT:    ret
 ;
 ; DOT-LABEL: ctpop_into_extract:
 ; DOT:       // %bb.0:
-; DOT-NEXT:    ldr d0, [x0]
-; DOT-NEXT:    movi v2.2d, #0xffffffffffffffff
+; DOT-NEXT:    ldr w9, [x0]
+; DOT-NEXT:    movi v1.2d, #0xffffffffffffffff
 ; DOT-NEXT:    mov x8, x0
+; DOT-NEXT:    fmov d0, x9
+; DOT-NEXT:    cnt v0.8b, v0.8b
+; DOT-NEXT:    addv b0, v0.8b
+; DOT-NEXT:    mov v1.s[1], v0.s[0]
+; DOT-NEXT:    ldr d0, [x0]
 ; DOT-NEXT:    mov w0, wzr
-; DOT-NEXT:    fmov w9, s0
-; DOT-NEXT:    fmov s1, w9
-; DOT-NEXT:    cnt v1.8b, v1.8b
-; DOT-NEXT:    addv b1, v1.8b
-; DOT-NEXT:    mov v2.s[1], v1.s[0]
-; DOT-NEXT:    sub v0.2s, v0.2s, v2.2s
+; DOT-NEXT:    sub v0.2s, v0.2s, v1.2s
 ; DOT-NEXT:    str d0, [x8]
 ; DOT-NEXT:    ret
 ;
@@ -840,16 +840,17 @@ define i32 @ctpop_into_extract(ptr %p) {
 ;
 ; BE-LABEL: ctpop_into_extract:
 ; BE:       // %bb.0:
-; BE-NEXT:    ld1 { v0.2s }, [x0]
-; BE-NEXT:    movi v2.2d, #0xffffffffffffffff
+; BE-NEXT:    ldr w9, [x0]
+; BE-NEXT:    movi v1.2d, #0xffffffffffffffff
 ; BE-NEXT:    mov x8, x0
+; BE-NEXT:    fmov d0, x9
+; BE-NEXT:    rev64 v0.8b, v0.8b
+; BE-NEXT:    cnt v0.8b, v0.8b
+; BE-NEXT:    addv b0, v0.8b
+; BE-NEXT:    mov v1.s[1], v0.s[0]
+; BE-NEXT:    ld1 { v0.2s }, [x0]
 ; BE-NEXT:    mov w0, wzr
-; BE-NEXT:    fmov w9, s0
-; BE-NEXT:    fmov s1, w9
-; BE-NEXT:    cnt v1.8b, v1.8b
-; BE-NEXT:    addv b1, v1.8b
-; BE-NEXT:    mov v2.s[1], v1.s[0]
-; BE-NEXT:    sub v0.2s, v0.2s, v2.2s
+; BE-NEXT:    sub v0.2s, v0.2s, v1.2s
 ; BE-NEXT:    st1 { v0.2s }, [x8]
 ; BE-NEXT:    ret
 ;

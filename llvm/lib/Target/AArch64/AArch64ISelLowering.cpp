@@ -20364,6 +20364,80 @@ performExtractVectorEltCombine(SDNode *N, TargetLowering::DAGCombinerInfo &DCI,
     }
   }
 
+  // Give an extract(load or extract(ext(load, produce a scalar load instead to
+  // avoid the cross-register-bank copies.
+  if (DCI.isAfterLegalizeDAG() && VT.isInteger() && isa<ConstantSDNode>(N1) &&
+      !N0.getValueType().isScalableVector()) {
+    LLVM_DEBUG(dbgs() << "Here\n");
+    LLVM_DEBUG(N->dumpr(&DAG));
+    SDValue LoadN0 = N0;
+    // Look through sext/zext and exract_subreg if required.
+    if ((N0.getOpcode() == ISD::ZERO_EXTEND ||
+         N0.getOpcode() == ISD::SIGN_EXTEND ||
+         N0.getOpcode() == ISD::ANY_EXTEND) &&
+        N0.getOperand(0).hasOneUse())
+      LoadN0 = N0.getOperand(0);
+    unsigned OffsetElts = 0;
+    if (LoadN0.getOpcode() == ISD::EXTRACT_SUBVECTOR &&
+        !LoadN0.getOperand(0).getValueType().isScalableVector()) {
+      OffsetElts = LoadN0.getConstantOperandVal(1);
+      LoadN0 = LoadN0.getOperand(0);
+    }
+    if (LoadN0.getOpcode() == ISD::INSERT_SUBVECTOR &&
+        LoadN0.getOperand(0).isUndef() && isNullConstant(LoadN0.getOperand(2)))
+      LoadN0 = LoadN0.getOperand(1);
+
+    // Check all the uses are valid and can be scalarized.
+    auto Load = dyn_cast<LoadSDNode>(LoadN0);
+    if (Load && Load->isSimple() && all_of(N0->uses(), [&](const SDUse &U) {
+          return U.getResNo() != N0.getResNo() ||
+                 (U.getUser()->getOpcode() == ISD::EXTRACT_VECTOR_ELT &&
+                  !any_of(U.getUser()->uses(), [](const SDUse &U2) {
+                    return U2.getUser()->getOpcode() ==
+                               ISD::INSERT_VECTOR_ELT ||
+                           U2.getUser()->getOpcode() == ISD::BUILD_VECTOR ||
+                           U2.getUser()->getOpcode() == ISD::SCALAR_TO_VECTOR;
+                  }));
+        })) {
+      LLVM_DEBUG(dbgs() << "Do it\n");
+      LLVM_DEBUG(dbgs() << "  Load: "; Load->dump());
+
+      // TODOD: assert Byte sized
+
+      SDLoc DL(Load);
+      EVT ScalarVT = Load->getValueType(0).getScalarType();
+      if (ScalarVT.getSizeInBits() < 32)
+        ScalarVT = MVT::i32;
+
+      // Generate a new scalar load.
+      unsigned Offset = (OffsetElts + N->getConstantOperandVal(1)) *
+                        Load->getValueType(0).getScalarSizeInBits() / 8;
+      SDValue BasePtr = DAG.getObjectPtrOffset(
+          DL, Load->getBasePtr(), DAG.getConstant(Offset, DL, MVT::i64));
+      ISD::LoadExtType ExtType =
+          N0.getOpcode() == ISD::ZERO_EXTEND
+              ? ISD::ZEXTLOAD
+              : (N0.getOpcode() == ISD::SIGN_EXTEND ? ISD::SEXTLOAD
+                                                    : ISD::EXTLOAD);
+      SDValue ScalarLoad =
+          DAG.getExtLoad(ExtType, DL, ScalarVT, Load->getChain(), BasePtr,
+                         Load->getPointerInfo().getWithOffset(Offset),
+                         Load->getValueType(0).getScalarType(),
+                         commonAlignment(Load->getAlign(), Offset),
+                         Load->getMemOperand()->getFlags(), Load->getAAInfo());
+      DAG.makeEquivalentMemoryOrdering(Load, ScalarLoad);
+
+      // Extend back to the original type if we looked through an extend above.
+      if ((N0.getOpcode() == ISD::ZERO_EXTEND ||
+           N0.getOpcode() == ISD::SIGN_EXTEND ||
+           N0.getOpcode() == ISD::ANY_EXTEND) &&
+          ScalarVT.getScalarSizeInBits() < VT.getScalarSizeInBits())
+        ScalarLoad = DAG.getNode(N0.getOpcode(), DL, VT, ScalarLoad);
+
+      return ScalarLoad;
+    }
+  }
+
   return SDValue();
 }
 
