@@ -4241,6 +4241,24 @@ std::optional<InstructionCost> AArch64TTIImpl::getFP16BF16PromoteCost(
   return Cost;
 }
 
+/// Return the TypeLegalizationCost with the adjusted for non-power-2 vectors to
+/// return the correct numbe of vectors required, not cost of the number of
+/// times the vector needs to be doubled. i.e. v12i32 will return 3, not 4, with
+/// a v4i32 legal type.
+std::pair<InstructionCost, MVT>
+AArch64TTIImpl::getAdjustedTypeLegalizationCost(Type *Ty) const {
+  std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Ty);
+  if (LT.first > 1 && Ty->isVectorTy() && LT.second.isVector() &&
+      Ty->isScalableTy() == LT.second.isScalableVector() &&
+      LT.second.getVectorMinNumElements() <
+          cast<VectorType>(Ty)->getElementCount().getKnownMinValue())
+    return {
+        divideCeil(cast<VectorType>(Ty)->getElementCount().getKnownMinValue(),
+                   LT.second.getVectorMinNumElements()),
+        LT.second};
+  return LT;
+}
+
 InstructionCost AArch64TTIImpl::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, TTI::TargetCostKind CostKind,
     TTI::OperandValueInfo Op1Info, TTI::OperandValueInfo Op2Info,
@@ -4254,13 +4272,8 @@ InstructionCost AArch64TTIImpl::getArithmeticInstrCost(
     if (VTy->getElementCount() == ElementCount::getScalable(1))
       return InstructionCost::getInvalid();
 
-  // TODO: Handle more cost kinds.
-  if (CostKind != TTI::TCK_RecipThroughput)
-    return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info,
-                                         Op2Info, Args, CxtI);
-
   // Legalize the type.
-  std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Ty);
+  std::pair<InstructionCost, MVT> LT = getAdjustedTypeLegalizationCost(Ty);
   int ISD = TLI->InstructionOpcodeToISD(Opcode);
 
   // Increase the cost for half and bfloat types if not architecturally
@@ -4555,15 +4568,21 @@ InstructionCost AArch64TTIImpl::getArithmeticInstrCost(
     [[fallthrough]];
   case ISD::FADD:
   case ISD::FSUB:
-    if (!Ty->getScalarType()->isFP128Ty())
-      return LT.first;
+    if (!Ty->getScalarType()->isFP128Ty()) {
+      unsigned Factor = CostKind == TTI::TCK_Latency ? 3 : 1;
+      return Factor * LT.first;
+    }
     [[fallthrough]];
   case ISD::FMUL:
   case ISD::FDIV:
     // These nodes are marked as 'custom' just to lower them to SVE.
     // We know said lowering will incur no additional cost.
-    if (!Ty->getScalarType()->isFP128Ty())
-      return 2 * LT.first;
+    if (!Ty->getScalarType()->isFP128Ty()) {
+      unsigned Factor = CostKind == TTI::TCK_Latency
+                            ? 3
+                            : (CostKind == TTI::TCK_RecipThroughput ? 2 : 1);
+      return Factor * LT.first;
+    }
 
     return BaseT::getArithmeticInstrCost(Opcode, Ty, CostKind, Op1Info,
                                          Op2Info);
