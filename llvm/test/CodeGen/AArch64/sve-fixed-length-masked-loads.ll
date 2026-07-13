@@ -32,6 +32,30 @@ define <2 x half> @masked_load_v2f16(ptr %ap, ptr %bp) vscale_range(2,0) #0 {
   ret <2 x half> %load
 }
 
+define <2 x bfloat> @masked_load_v2bf16(ptr %ap, ptr %bp) vscale_range(2,0) #0 {
+; CHECK-LABEL: masked_load_v2bf16:
+; CHECK:       // %bb.0:
+; CHECK-NEXT:    ldr s1, [x0]
+; CHECK-NEXT:    ldr s2, [x1]
+; CHECK-NEXT:    movi v0.2d, #0000000000000000
+; CHECK-NEXT:    ptrue p0.h, vl4
+; CHECK-NEXT:    shll v2.4s, v2.4h, #16
+; CHECK-NEXT:    shll v1.4s, v1.4h, #16
+; CHECK-NEXT:    fcmeq v1.4s, v1.4s, v2.4s
+; CHECK-NEXT:    mov v0.h[0], v1.h[0]
+; CHECK-NEXT:    mov w8, v1.s[1]
+; CHECK-NEXT:    mov v0.h[1], w8
+; CHECK-NEXT:    cmpne p1.h, p0/z, z0.h, #0
+; CHECK-NEXT:    ld1h { z0.h }, p1/z, [x0]
+; CHECK-NEXT:    // kill: def $d0 killed $d0 killed $z0
+; CHECK-NEXT:    ret
+  %a = load <2 x bfloat>, ptr %ap
+  %b = load <2 x bfloat>, ptr %bp
+  %mask = fcmp oeq <2 x bfloat> %a, %b
+  %load = call <2 x bfloat> @llvm.masked.load.v2bf16(ptr %ap, i32 8, <2 x i1> %mask, <2 x bfloat> zeroinitializer)
+  ret <2 x bfloat> %load
+}
+
 define <2 x float> @masked_load_v2f32(ptr %ap, ptr %bp) vscale_range(2,0) #0 {
 ; CHECK-LABEL: masked_load_v2f32:
 ; CHECK:       // %bb.0:
