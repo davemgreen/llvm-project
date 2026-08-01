@@ -98,7 +98,7 @@ private:
 
   // A lowering phase that runs before any selection attempts.
   // Returns true if the instruction was modified.
-  bool preISelLower(MachineInstr &I);
+  bool preISelLower(MachineInstr &I, SmallVector<MachineInstr*> &NewGIInstrs);
 
   // An early selection function that runs before the selectImpl() call.
   bool earlySelect(MachineInstr &I);
@@ -2134,7 +2134,8 @@ void AArch64InstructionSelector::materializeLargeCMVal(
   BuildMovK(DstReg, AArch64II::MO_G3, 48, I.getOperand(0).getReg());
 }
 
-bool AArch64InstructionSelector::preISelLower(MachineInstr &I) {
+bool AArch64InstructionSelector::preISelLower(
+    MachineInstr &I, SmallVector<MachineInstr *> &NewInstrs) {
   MachineBasicBlock &MBB = *I.getParent();
   MachineFunction &MF = *MBB.getParent();
   MachineRegisterInfo &MRI = MF.getRegInfo();
@@ -2253,6 +2254,37 @@ bool AArch64InstructionSelector::preISelLower(MachineInstr &I) {
         I.setDesc(TII.get(AArch64::G_SITOF));
       else
         I.setDesc(TII.get(AArch64::G_UITOF));
+      return true;
+    }
+    return false;
+  }
+  case TargetOpcode::G_ROTR:
+  case TargetOpcode::G_FSHR: {
+    // Extend i32 shift amounts to i64 to help selection.
+    LLT DstTy = MRI.getType(I.getOperand(0).getReg());
+    unsigned ShiftOp = I.getOpcode() == TargetOpcode::G_FSHR ? 3 : 2;
+    Register ShiftReg = I.getOperand(ShiftOp).getReg();
+    LLT ShiftTy = MRI.getType(ShiftReg);
+    if (DstTy == LLT::integer(32) && ShiftTy == LLT::integer(32)) {
+      MachineInstr *ShiftSrc = MRI.getVRegDef(ShiftReg);
+      if (ShiftSrc && ShiftSrc->getOpcode() == TargetOpcode::G_CONSTANT) {
+        auto C = MIB.buildConstant(
+            LLT::integer(64),
+            ShiftSrc->getOperand(1).getCImm()->getValue().zext(64));
+        MRI.setRegBank(C.getReg(0), RBI.getRegBank(AArch64::GPRRegBankID));
+        I.getOperand(ShiftOp).setReg(C.getReg(0));
+        NewInstrs.push_back(C);
+        return true;
+      }
+
+      Register NewVal = MRI.createVirtualRegister(&AArch64::GPR64RegClass);
+      BuildMI(MBB, I.getIterator(), I.getDebugLoc(),
+              TII.get(AArch64::SUBREG_TO_REG))
+          .addDef(NewVal)
+          .addUse(ShiftReg)
+          .addImm(AArch64::sub_32);
+      MRI.setType(NewVal, LLT::scalar(64));
+      I.getOperand(ShiftOp).setReg(NewVal);
       return true;
     }
     return false;
@@ -2632,9 +2664,23 @@ bool AArch64InstructionSelector::select(MachineInstr &I) {
   // Try to do some lowering before we start instruction selecting. These
   // lowerings are purely transformations on the input G_MIR and so selection
   // must continue after any modification of the instruction.
-  if (preISelLower(I)) {
+  SmallVector<MachineInstr*> NewGIInstrs;
+  if (preISelLower(I, NewGIInstrs))
     Opcode = I.getOpcode(); // The opcode may have been modified, refresh it.
-  }
+
+  class OnExit {
+  public:
+    AArch64InstructionSelector *Sel;
+    SmallVector<MachineInstr*> &NewGIInstrs;
+    OnExit(AArch64InstructionSelector *Sel,
+           SmallVector<MachineInstr *> &NewGIInstrs)
+        : Sel(Sel), NewGIInstrs(NewGIInstrs) {}
+    ~OnExit() {
+      for (MachineInstr *I : NewGIInstrs)
+        Sel->select(*I);
+    }
+  };
+  OnExit E(this, NewGIInstrs);
 
   // There may be patterns where the importer can't deal with them optimally,
   // but does select it to a suboptimal sequence so our custom C++ selection

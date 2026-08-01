@@ -439,6 +439,21 @@ static bool foldTruncOfI32Constant(MachineInstr &MI, unsigned OpIdx,
 
   return true;
 }
+static bool foldConstant(MachineInstr &MI, unsigned OpIdx, LLT Ty,
+                         MachineRegisterInfo &MRI, MachineIRBuilder &Builder) {
+  Register ScalarReg = MI.getOperand(OpIdx).getReg();
+  MachineInstr *SrcDef = MRI.getVRegDef(ScalarReg);
+  if (!SrcDef && SrcDef->getOpcode() == TargetOpcode::G_TRUNC)
+    SrcDef = MRI.getVRegDef(SrcDef->getOperand(1).getReg());
+  if (!SrcDef || SrcDef->getOpcode() != TargetOpcode::G_CONSTANT)
+    return false;
+  auto NC =
+      Builder.buildConstant(Ty, SrcDef->getOperand(1).getCImm()->getValue().zext(
+                                Ty.getScalarSizeInBits()));
+  MRI.setRegBank(NC.getReg(0), *MRI.getRegBank(ScalarReg));
+  MI.getOperand(OpIdx).setReg(NC.getReg(0));
+  return true;
+}
 
 void AArch64RegisterBankInfo::applyMappingImpl(
     MachineIRBuilder &Builder, const OperandsMapper &OpdMapper) const {
@@ -534,6 +549,30 @@ void AArch64RegisterBankInfo::applyMappingImpl(
     MRI.setRegBank(ConstReg, AArch64::GPRRegBank);
     MI.getOperand(1).setReg(ConstReg);
 
+    return applyDefaultMapping(OpdMapper);
+  }
+  case TargetOpcode::G_SHL:
+  case TargetOpcode::G_LSHR:
+  case TargetOpcode::G_ASHR: {
+    // Extend smaller gpr to 32-bits
+    assert(MRI.getType(MI.getOperand(2).getReg()).getSizeInBits() == 32 &&
+           "Expected shift sources of size 32-bits");
+    Builder.setInsertPt(*MI.getParent(), MI.getIterator());
+    if (foldConstant(MI, 2, LLT::integer(64), MRI, Builder))
+      return applyDefaultMapping(OpdMapper);
+    return applyDefaultMapping(OpdMapper);
+  }
+  case TargetOpcode::G_ROTR: {
+    // Extend smaller gpr to 32-bits
+    assert(MRI.getType(MI.getOperand(2).getReg()).getSizeInBits() == 32 &&
+           "Expected shift sources of size 32-bits");
+    Builder.setInsertPt(*MI.getParent(), MI.getIterator());
+    if (foldConstant(MI, 2, LLT::integer(64), MRI, Builder))
+      return applyDefaultMapping(OpdMapper);
+
+    auto Ext = Builder.buildZExt(LLT::integer(64), MI.getOperand(2).getReg());
+    MRI.setRegBank(Ext.getReg(0), AArch64::GPRRegBank);
+    MI.getOperand(2).setReg(Ext.getReg(0));
     return applyDefaultMapping(OpdMapper);
   }
   default:
@@ -904,11 +943,11 @@ AArch64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case TargetOpcode::G_SHL:
   case TargetOpcode::G_LSHR:
   case TargetOpcode::G_ASHR: {
-    LLT ShiftAmtTy = MRI.getType(MI.getOperand(2).getReg());
     LLT SrcTy = MRI.getType(MI.getOperand(1).getReg());
-    if (ShiftAmtTy.getSizeInBits() == 64 && SrcTy.getSizeInBits() == 32)
-      return getInstructionMapping(DefaultMappingID, 1,
-                                   &ValMappings[Shift64Imm], 3);
+    if (SrcTy.getSizeInBits() == 32) {
+      return getInstructionMapping(CustomMappingID, 1, &ValMappings[Shift64Imm],
+                                   3);
+    }
     return getSameKindOfOperandsMapping(MI);
   }
   case TargetOpcode::G_BITCAST: {
@@ -1055,6 +1094,12 @@ AArch64RegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
       }
       OpRegBankIdx = {PMI_FirstFPR, PMI_FirstGPR};
     }
+    break;
+  }
+  case TargetOpcode::G_ROTR: {
+    LLT DstTy = MRI.getType(MI.getOperand(0).getReg());
+    if (DstTy == LLT::integer(32))
+      MappingID = CustomMappingID;
     break;
   }
   case TargetOpcode::G_TRUNC: {

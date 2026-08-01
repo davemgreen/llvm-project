@@ -383,6 +383,7 @@ public:
                               const SDLoc &DL) const override;
   TargetLoweringBase::LegalizeTypeAction
   getPreferredVectorAction(MVT VT) const override;
+  LLT getPreferredShiftAmountTy(LLT Ty) const override;
 
   /// If the target has a standard location for the stack protector cookie,
   /// returns the address of that location. Otherwise, returns nullptr.

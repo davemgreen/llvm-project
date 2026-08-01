@@ -3132,6 +3132,10 @@ MVT AArch64TargetLowering::getScalarShiftAmountTy(const DataLayout &DL,
   return MVT::i64;
 }
 
+LLT AArch64TargetLowering::getPreferredShiftAmountTy(LLT Ty) const {
+  return Ty;
+}
+
 bool AArch64TargetLowering::allowsMisalignedMemoryAccesses(
     EVT VT, unsigned AddrSpace, Align Alignment, MachineMemOperand::Flags Flags,
     unsigned *Fast) const {

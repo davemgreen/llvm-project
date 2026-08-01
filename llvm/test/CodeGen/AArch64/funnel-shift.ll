@@ -412,7 +412,7 @@ define i8 @fshr_i8_const_fold_overshift_2() {
 ;
 ; CHECK-GI-LABEL: fshr_i8_const_fold_overshift_2:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    mov w0, #481 // =0x1e1
+; CHECK-GI-NEXT:    mov w0, #-31 // =0xffffffe1
 ; CHECK-GI-NEXT:    ret
   %f = call i8 @llvm.fshr.i8(i8 15, i8 15, i8 11)
   ret i8 %f

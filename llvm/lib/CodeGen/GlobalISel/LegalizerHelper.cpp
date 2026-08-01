@@ -281,7 +281,7 @@ LLT LegalizerHelper::buildLCMMergePieces(LLT DstTy, LLT NarrowTy, LLT GCDTy,
 
       // Shift the sign bit of the low register through the high register.
       auto ShiftAmt =
-          MIRBuilder.buildConstant(LLT::integer(64), GCDTy.getSizeInBits() - 1);
+          MIRBuilder.buildConstant(GCDTy, GCDTy.getSizeInBits() - 1);
       PadReg = MIRBuilder.buildAShr(GCDTy, VRegs.back(), ShiftAmt).getReg(0);
     }
   }

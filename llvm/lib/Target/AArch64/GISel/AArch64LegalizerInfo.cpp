@@ -232,15 +232,9 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST)
       .moreElementsToNextPow2(0);
 
   getActionDefinitionsBuilder({G_SHL, G_ASHR, G_LSHR})
-      .customIf([=](const LegalityQuery &Query) {
-        const auto &SrcTy = Query.Types[0];
-        const auto &AmtTy = Query.Types[1];
-        return !SrcTy.isVector() && SrcTy.getSizeInBits() == 32 &&
-               AmtTy.getSizeInBits() == 32;
-      })
       .legalFor({
           {i32, i32},
-          {i32, i64},
+          {i32, i64}, // Ideally shouldn't be needed. Only necessary post-regbank
           {i64, i64},
           {v8i8, v8i8},
           {v16i8, v16i8},
@@ -342,14 +336,11 @@ AArch64LegalizerInfo::AArch64LegalizerInfo(const AArch64Subtarget &ST)
       .widenScalarToNextPow2(0);
 
   getActionDefinitionsBuilder({G_FSHL, G_FSHR})
-      .customFor({{i32, i32}, {i32, i64}, {i64, i64}})
+      .customFor({{i32, i32}, {i64, i64}})
       .lower();
 
   getActionDefinitionsBuilder(G_ROTR)
-      .legalFor({{i32, i64}, {i64, i64}})
-      .customIf([=](const LegalityQuery &Q) {
-        return Q.Types[0].isScalar() && Q.Types[1].getScalarSizeInBits() < 64;
-      })
+      .legalFor({{i32, i32}, {i32, i64}, {i64, i64}}) // {i32, i64} is only needed post-regbank
       .lower();
   getActionDefinitionsBuilder(G_ROTL).lower();
 
@@ -1555,10 +1546,6 @@ bool AArch64LegalizerInfo::legalizeCustom(
   case TargetOpcode::G_LOAD:
   case TargetOpcode::G_STORE:
     return legalizeLoadStore(MI, MRI, MIRBuilder, Observer);
-  case TargetOpcode::G_SHL:
-  case TargetOpcode::G_ASHR:
-  case TargetOpcode::G_LSHR:
-    return legalizeShlAshrLshr(MI, MRI, MIRBuilder, Observer);
   case TargetOpcode::G_GLOBAL_VALUE:
     return legalizeSmallCMGlobalValue(MI, MRI, MIRBuilder, Observer);
   case TargetOpcode::G_SBFX:
@@ -1567,8 +1554,6 @@ bool AArch64LegalizerInfo::legalizeCustom(
   case TargetOpcode::G_FSHL:
   case TargetOpcode::G_FSHR:
     return legalizeFunnelShift(MI, MRI, MIRBuilder, Observer, Helper);
-  case TargetOpcode::G_ROTR:
-    return legalizeRotate(MI, MRI, Helper);
   case TargetOpcode::G_CTPOP:
     return legalizeCTPOP(MI, MRI, Helper);
   case TargetOpcode::G_ATOMIC_CMPXCHG:
@@ -1649,16 +1634,14 @@ bool AArch64LegalizerInfo::legalizeFunnelShift(MachineInstr &MI,
 
   // If the instruction is G_FSHR, has a 64-bit G_CONSTANT for shift amount
   // in the range of 0 <-> BitWidth, it is legal
-  if (ShiftTy.getSizeInBits() == 64 && MI.getOpcode() == TargetOpcode::G_FSHR &&
-      VRegAndVal->Value.ult(BitWidth))
+  if (MI.getOpcode() == TargetOpcode::G_FSHR && VRegAndVal->Value.ult(BitWidth))
     return true;
 
-  // Cast the ShiftNumber to a 64-bit type
-  auto Cast64 = MIRBuilder.buildConstant(LLT::integer(64), Amount.zext(64));
+  auto AmountC = MIRBuilder.buildConstant(ShiftTy, Amount);
 
   if (MI.getOpcode() == TargetOpcode::G_FSHR) {
     Observer.changingInstr(MI);
-    MI.getOperand(3).setReg(Cast64.getReg(0));
+    MI.getOperand(3).setReg(AmountC.getReg(0));
     Observer.changedInstr(MI);
   }
   // If Opcode is FSHL, remove the FSHL instruction and create a FSHR
@@ -1666,7 +1649,7 @@ bool AArch64LegalizerInfo::legalizeFunnelShift(MachineInstr &MI,
   else if (MI.getOpcode() == TargetOpcode::G_FSHL) {
     MIRBuilder.buildInstr(TargetOpcode::G_FSHR, {MI.getOperand(0).getReg()},
                           {MI.getOperand(1).getReg(), MI.getOperand(2).getReg(),
-                           Cast64.getReg(0)});
+                           AmountC.getReg(0)});
     MI.eraseFromParent();
   }
   return true;
@@ -1699,23 +1682,6 @@ bool AArch64LegalizerInfo::legalizeICMP(MachineInstr &MI,
   MIRBuilder.buildNot(DstReg, CmpReg);
 
   MI.eraseFromParent();
-  return true;
-}
-
-bool AArch64LegalizerInfo::legalizeRotate(MachineInstr &MI,
-                                          MachineRegisterInfo &MRI,
-                                          LegalizerHelper &Helper) const {
-  // To allow for imported patterns to match, we ensure that the rotate amount
-  // is 64b with an extension.
-  Register AmtReg = MI.getOperand(2).getReg();
-  LLT AmtTy = MRI.getType(AmtReg);
-  (void)AmtTy;
-  assert(AmtTy.isScalar() && "Expected a scalar rotate");
-  assert(AmtTy.getSizeInBits() < 64 && "Expected this rotate to be legal");
-  auto NewAmt = Helper.MIRBuilder.buildZExt(LLT::integer(64), AmtReg);
-  Helper.Observer.changingInstr(MI);
-  MI.getOperand(2).setReg(NewAmt.getReg(0));
-  Helper.Observer.changedInstr(MI);
   return true;
 }
 
@@ -2135,31 +2101,6 @@ bool AArch64LegalizerInfo::legalizeIntrinsic(LegalizerHelper &Helper,
     return false;
   }
 
-  return true;
-}
-
-bool AArch64LegalizerInfo::legalizeShlAshrLshr(
-    MachineInstr &MI, MachineRegisterInfo &MRI, MachineIRBuilder &MIRBuilder,
-    GISelChangeObserver &Observer) const {
-  assert(MI.getOpcode() == TargetOpcode::G_ASHR ||
-         MI.getOpcode() == TargetOpcode::G_LSHR ||
-         MI.getOpcode() == TargetOpcode::G_SHL);
-  // If the shift amount is a G_CONSTANT, promote it to a 64 bit type so the
-  // imported patterns can select it later. Either way, it will be legal.
-  Register AmtReg = MI.getOperand(2).getReg();
-  LLT AmtRegEltTy = MRI.getType(AmtReg).getScalarType();
-  auto VRegAndVal = getIConstantVRegValWithLookThrough(AmtReg, MRI);
-  if (!VRegAndVal)
-    return true;
-  // Check the shift amount is in range for an immediate form.
-  int64_t Amount = VRegAndVal->Value.getSExtValue();
-  if (Amount > 31)
-    return true; // This will have to remain a register variant.
-  auto ExtCst =
-      MIRBuilder.buildConstant(AmtRegEltTy.changeElementSize(64), Amount);
-  Observer.changingInstr(MI);
-  MI.getOperand(2).setReg(ExtCst.getReg(0));
-  Observer.changedInstr(MI);
   return true;
 }
 
