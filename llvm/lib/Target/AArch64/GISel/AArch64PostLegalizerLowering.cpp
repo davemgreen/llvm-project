@@ -550,12 +550,16 @@ void applyINS(MachineInstr &MI, MachineRegisterInfo &MRI,
 bool isVShiftRImm(Register Reg, MachineRegisterInfo &MRI, LLT Ty,
                   int64_t &Cnt) {
   assert(Ty.isVector() && "vector shift count is not a vector type");
-  MachineInstr *MI = MRI.getVRegDef(Reg);
-  auto Splat = getVectorSplat(*MI, MRI);
-  if (!Splat || Splat->isReg())
-    return false;
-  Cnt = Splat->getCst();
   int64_t ElementBits = Ty.getScalarSizeInBits();
+  assert(ElementBits <= 64 && "expected <= 64bit shift type");
+  MachineInstr *MI = MRI.getVRegDef(Reg);
+  std::optional<Register> Splat = getVectorSplat(*MI, MRI);
+  if (!Splat)
+    return false;
+  std::optional<APInt> C = getIConstantVRegVal(*Splat, MRI);
+  if (!C)
+    return false;
+  Cnt = C->getSExtValue();
   return Cnt >= 1 && Cnt <= ElementBits;
 }
 
